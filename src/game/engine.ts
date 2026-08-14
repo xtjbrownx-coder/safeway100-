@@ -95,7 +95,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 0.92;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
@@ -166,8 +166,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   mkWall(D, W / 2, 0, -Math.PI / 2);
 
   // lighting: ceiling strips
-  scene.add(new THREE.HemisphereLight("#ffffff", "#8a8f96", 0.55));
-  const key = new THREE.DirectionalLight("#fff6e8", 1.1);
+  scene.add(new THREE.HemisphereLight("#eef3f8", "#7d838a", 0.35));
+  const key = new THREE.DirectionalLight("#fff6e8", 0.7);
   key.position.set(8, 14, 10);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -181,7 +181,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const stripMat = new THREE.MeshStandardMaterial({
     color: "#ffffff",
     emissive: new THREE.Color("#fff4e0"),
-    emissiveIntensity: 2.2,
+    emissiveIntensity: 1.1,
     roughness: 1,
   });
   for (let zx = -12; zx <= 12; zx += 6) {
@@ -189,7 +189,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const strip = new THREE.Mesh(new THREE.BoxGeometry(10, 0.14, 0.7), stripMat);
       strip.position.set(xx, H - 0.35, zx);
       scene.add(strip);
-      const pl = new THREE.PointLight("#fff2dd", 22, 22, 2);
+      const pl = new THREE.PointLight("#fff2dd", 9, 18, 2);
       pl.position.set(xx, H - 0.8, zx);
       scene.add(pl);
     }
