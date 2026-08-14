@@ -616,13 +616,14 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const p = byId(id);
     const m = meshFor(p);
     m.castShadow = false;
+    m.userData['productId'] = id;
     cart.group.add(m);
     cartItems.push(m);
     layoutCart();
   }
 
   function removeFromCart(id: string) {
-    const idx = cartItems.findIndex((m) => m.userData['productId'] === id || byId(id) && m.material === matCache.get(id));
+    const idx = cartItems.findIndex((m) => m.userData['productId'] === id);
     if (idx >= 0) {
       const [m] = cartItems.splice(idx, 1);
       m && cart.group.remove(m);
