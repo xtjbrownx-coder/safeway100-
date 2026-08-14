@@ -106,7 +106,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
   const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 200);
-  const player = { pos: new THREE.Vector3(0, 1.65, 12), yaw: Math.PI, pitch: 0, vel: new THREE.Vector3() };
+  const player = { pos: new THREE.Vector3(0, 1.65, 14.5), yaw: 0, pitch: 0, vel: new THREE.Vector3() };
 
   // ---------- store shell ----------
   const W = 44,
