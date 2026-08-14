@@ -38,7 +38,8 @@ function Index() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [locked, setLocked] = useState(false);
   const [prompt, setPrompt] = useState<string | null>(null);
-  const [list] = useState<ListEntry[]>(() => buildList(5));
+  const [list, setList] = useState<ListEntry[]>([]);
+  useEffect(() => setList(buildList(5)), []);
   const [cart, setCart] = useState<string[]>([]);
   const [scanned, setScanned] = useState<string[]>([]);
   const [seconds, setSeconds] = useState(0);
@@ -159,7 +160,7 @@ function Index() {
       )}
 
       {/* Intro */}
-      {phase === "intro" && (
+      {phase === "intro" && list.length > 0 && (
         <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-slate-950/90 to-slate-900/95 px-6 backdrop-blur">
           <div className="max-w-lg rounded-2xl border border-white/10 bg-slate-900/80 p-8 text-slate-100 shadow-2xl">
             <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">Self-checkout simulator</p>
