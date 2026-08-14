@@ -145,7 +145,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const W = 58;
   const D = 46;
   const H = 6.2;
-  const RUN_X = [-18, -10, -2, 6, 14]; // gondola run centers
+  const RUN_X = [-15, -8.5, -2, 4.5, 11]; // gondola run centers
   const RUN_Z0 = -17;
   const RUN_Z1 = 5;
   const RUN_LEN = RUN_Z1 - RUN_Z0;
