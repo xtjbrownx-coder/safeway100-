@@ -1,198 +1,266 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { CATALOG, byId, type ProductDef } from "./catalog";
+import { CATALOG, AISLES, byId, type ProductDef } from "./catalog";
+
+export type RemotePlayer = { id: string; name: string; x: number; z: number; yaw: number; color: string };
 
 export type GameCallbacks = {
   onPrompt: (text: string | null) => void;
   onPickup: (id: string) => void;
   onCheckout: () => void;
   onLockChange: (locked: boolean) => void;
+  onMove?: (x: number, z: number, yaw: number) => void;
 };
 
-const AISLES = ["Produce", "Dairy", "Bakery", "Pantry", "Snacks", "Drinks", "Household"];
+// ---------------------------------------------------------------- textures
+function makeCanvas(w: number, h: number) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return [c, c.getContext("2d")!] as const;
+}
 
-// shelf unit slots: [x, z, rotationY]
-const SLOTS: [number, number][] = [
-  [-10, -9],
-  [0, -9],
-  [10, -9],
-  [-10, -3.5],
-  [0, -3.5],
-  [10, -3.5],
-  [-10, 2],
-];
+function toTex(c: HTMLCanvasElement, repeat?: [number, number]) {
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  if (repeat) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(repeat[0], repeat[1]);
+  }
+  return t;
+}
 
 function labelTexture(p: ProductDef) {
-  const c = document.createElement("canvas");
-  c.width = 256;
-  c.height = 256;
-  const g = c.getContext("2d")!;
+  const [c, g] = makeCanvas(256, 256);
   g.fillStyle = p.color;
   g.fillRect(0, 0, 256, 256);
-  // subtle noise for realism
-  for (let i = 0; i < 2600; i++) {
-    g.fillStyle = `rgba(0,0,0,${Math.random() * 0.05})`;
-    g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
-  }
+  // soft vertical sheen
+  const grad = g.createLinearGradient(0, 0, 256, 0);
+  grad.addColorStop(0, "rgba(0,0,0,0.20)");
+  grad.addColorStop(0.45, "rgba(255,255,255,0.14)");
+  grad.addColorStop(1, "rgba(0,0,0,0.22)");
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  // brand band
   g.fillStyle = p.accent;
-  g.fillRect(0, 96, 256, 8);
-  g.fillRect(0, 170, 256, 4);
-  g.fillStyle = p.accent;
-  g.font = "bold 30px Helvetica, Arial, sans-serif";
+  g.fillRect(0, 24, 256, 46);
+  g.fillStyle = p.color;
+  g.font = "700 22px Helvetica, Arial, sans-serif";
   g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(p.brand.toUpperCase(), 128, 48);
+  // product name
+  g.fillStyle = "rgba(255,255,255,0.94)";
+  g.font = "700 27px Helvetica, Arial, sans-serif";
   const words = p.name.split(" ");
   const lines: string[] = [];
   let cur = "";
   for (const w of words) {
-    if ((cur + " " + w).trim().length > 12) {
+    if ((cur + " " + w).trim().length > 13) {
       lines.push(cur.trim());
       cur = w;
     } else cur += " " + w;
   }
   lines.push(cur.trim());
-  lines.forEach((l, i) => g.fillText(l, 128, 140 + i * 32));
-  g.font = "600 20px Helvetica, Arial, sans-serif";
-  g.fillText(p.aisle.toUpperCase(), 128, 70);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
-  return tex;
+  lines.forEach((l, i) => g.fillText(l, 128, 132 + i * 30 - (lines.length - 1) * 15));
+  // footer bar + faux barcode
+  g.fillStyle = p.accent;
+  g.fillRect(0, 196, 256, 60);
+  g.fillStyle = "rgba(0,0,0,0.75)";
+  for (let x = 24; x < 232; x += 6) g.fillRect(x, 210, 1 + Math.random() * 3, 32);
+  return toTex(c);
 }
 
-function makeProductMesh(p: ProductDef, tex: THREE.Texture) {
-  const mat = new THREE.MeshStandardMaterial({
-    map: tex,
-    roughness: p.shape === "bottle" || p.shape === "can" ? 0.25 : 0.75,
-    metalness: p.shape === "can" ? 0.55 : 0.05,
-  });
+// ---------------------------------------------------------------- product meshes
+const geoCache = new Map<string, THREE.BufferGeometry>();
+function shapeGeo(shape: ProductDef["shape"]) {
+  const cached = geoCache.get(shape);
+  if (cached) return cached;
   let geo: THREE.BufferGeometry;
-  switch (p.shape) {
+  switch (shape) {
     case "carton":
-      geo = new THREE.BoxGeometry(0.16, 0.34, 0.16);
+      geo = new THREE.BoxGeometry(0.15, 0.34, 0.15);
       break;
     case "box":
-      geo = new THREE.BoxGeometry(0.24, 0.3, 0.11);
+      geo = new THREE.BoxGeometry(0.22, 0.3, 0.1);
       break;
     case "bottle":
-      geo = new THREE.CylinderGeometry(0.075, 0.085, 0.32, 20);
+      geo = new THREE.CylinderGeometry(0.065, 0.08, 0.32, 18);
       break;
     case "can":
-      geo = new THREE.CylinderGeometry(0.07, 0.07, 0.22, 22);
+      geo = new THREE.CylinderGeometry(0.07, 0.07, 0.23, 20);
+      break;
+    case "jar":
+      geo = new THREE.CylinderGeometry(0.085, 0.085, 0.2, 20);
+      break;
+    case "tub":
+      geo = new THREE.CylinderGeometry(0.1, 0.085, 0.16, 20);
+      break;
+    case "tray":
+      geo = new THREE.BoxGeometry(0.26, 0.09, 0.19);
+      break;
+    case "produce":
+      geo = new THREE.IcosahedronGeometry(0.11, 2);
       break;
     default:
-      geo = new THREE.SphereGeometry(0.14, 18, 14);
-      geo.scale(1.15, 0.95, 0.9);
+      geo = new THREE.BoxGeometry(0.24, 0.28, 0.13);
   }
-  const m = new THREE.Mesh(geo, mat);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
+  geoCache.set(shape, geo);
+  return geo;
 }
 
+function productMaterial(p: ProductDef, tex: THREE.Texture) {
+  const metal = p.shape === "can" || p.shape === "jar";
+  return new THREE.MeshStandardMaterial({
+    map: tex,
+    color: p.shape === "produce" ? new THREE.Color(p.color) : 0xffffff,
+    roughness: metal ? 0.28 : p.shape === "bottle" ? 0.32 : 0.72,
+    metalness: metal ? 0.5 : 0.04,
+    envMapIntensity: 1.0,
+  });
+}
+
+// ---------------------------------------------------------------- game
 export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.92;
+  renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color("#0e1116");
-  scene.fog = new THREE.Fog("#b9c2cc", 45, 110);
+  scene.background = new THREE.Color("#c8d2dc");
+  scene.fog = new THREE.Fog("#cfd8e0", 40, 120);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
 
-  const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 200);
-  const player = { pos: new THREE.Vector3(0, 1.65, 14.5), yaw: 0, pitch: 0, vel: new THREE.Vector3() };
+  const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 220);
+  const player = { pos: new THREE.Vector3(0, 1.68, 18), yaw: 0, pitch: -0.08, vel: new THREE.Vector3() };
 
-  // ---------- store shell ----------
-  const W = 44,
-    D = 34,
-    H = 5;
+  // ---------- dimensions ----------
+  const W = 58;
+  const D = 46;
+  const H = 6.2;
+  const RUN_X = [-15, -8.5, -2, 4.5, 11]; // gondola run centers
+  const RUN_Z0 = -17;
+  const RUN_Z1 = 5;
+  const RUN_LEN = RUN_Z1 - RUN_Z0;
+  const RUN_HALF_D = 0.62; // half width of a run (each side faces outward)
+
+  // ---------- floor ----------
   const floorTex = (() => {
-    const c = document.createElement("canvas");
-    c.width = c.height = 256;
-    const g = c.getContext("2d")!;
-    g.fillStyle = "#d9d6cf";
-    g.fillRect(0, 0, 256, 256);
-    for (let i = 0; i < 9000; i++) {
-      const v = 190 + Math.random() * 60;
-      g.fillStyle = `rgba(${v},${v - 4},${v - 12},${Math.random() * 0.5})`;
-      g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+    const [c, g] = makeCanvas(512, 512);
+    g.fillStyle = "#e9e7e2";
+    g.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 26000; i++) {
+      const v = 200 + Math.random() * 55;
+      g.fillStyle = `rgba(${v},${v - 3},${v - 10},${Math.random() * 0.35})`;
+      g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
     }
-    g.strokeStyle = "rgba(120,120,120,0.5)";
-    g.lineWidth = 3;
-    g.strokeRect(0, 0, 256, 256);
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(W / 1.2, D / 1.2);
-    t.anisotropy = 8;
-    return t;
+    // polished tile seams
+    g.strokeStyle = "rgba(150,152,155,0.55)";
+    g.lineWidth = 2;
+    g.strokeRect(1, 1, 510, 510);
+    return toTex(c, [W / 1.5, D / 1.5]);
   })();
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(W, D),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.22, metalness: 0.0, envMapIntensity: 0.9 }),
+    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.16, metalness: 0.02, envMapIntensity: 1.2 }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
+  // polished-concrete walkway strips between runs
+  const walkMat = new THREE.MeshStandardMaterial({ color: "#dfe3e6", roughness: 0.1, metalness: 0.05 });
+  for (let i = 0; i < RUN_X.length - 1; i++) {
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(2.2, RUN_LEN + 4), walkMat);
+    strip.rotation.x = -Math.PI / 2;
+    strip.position.set((RUN_X[i]! + RUN_X[i + 1]!) / 2, 0.005, (RUN_Z0 + RUN_Z1) / 2);
+    scene.add(strip);
+  }
+
+  // ---------- ceiling + structure ----------
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(W, D),
-    new THREE.MeshStandardMaterial({ color: "#e9ecef", roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ color: "#2a2f36", roughness: 0.95 }),
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = H;
   scene.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ color: "#dfe3e8", roughness: 0.9 });
-  const walls: THREE.Mesh[] = [];
+  const steel = new THREE.MeshStandardMaterial({ color: "#9aa3ac", roughness: 0.42, metalness: 0.72 });
+  for (let x = -W / 2 + 6; x <= W / 2 - 6; x += 8) {
+    const truss = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, D), steel);
+    truss.position.set(x, H - 0.4, 0);
+    scene.add(truss);
+  }
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: "#eef1f4", roughness: 0.85 });
   const mkWall = (w: number, x: number, z: number, ry: number) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, H), wallMat);
     m.position.set(x, H / 2, z);
     m.rotation.y = ry;
     m.receiveShadow = true;
     scene.add(m);
-    walls.push(m);
   };
   mkWall(W, 0, -D / 2, 0);
   mkWall(W, 0, D / 2, Math.PI);
   mkWall(D, -W / 2, 0, Math.PI / 2);
   mkWall(D, W / 2, 0, -Math.PI / 2);
 
-  // lighting: ceiling strips
-  scene.add(new THREE.HemisphereLight("#eef3f8", "#7d838a", 0.35));
-  const key = new THREE.DirectionalLight("#fff6e8", 0.7);
-  key.position.set(8, 14, 10);
+  // back-wall accent band (department color, Target/Safeway style)
+  const band = new THREE.Mesh(
+    new THREE.PlaneGeometry(W, 1.6),
+    new THREE.MeshStandardMaterial({ color: "#c8202c", roughness: 0.6 }),
+  );
+  band.position.set(0, H - 1.4, -D / 2 + 0.03);
+  scene.add(band);
+
+  // ---------- lighting ----------
+  scene.add(new THREE.HemisphereLight("#f4f8ff", "#8d949c", 0.85));
+  const key = new THREE.DirectionalLight("#fff6ea", 0.75);
+  key.position.set(14, 20, 16);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
-  key.shadow.camera.left = -26;
-  key.shadow.camera.right = 26;
-  key.shadow.camera.top = 22;
-  key.shadow.camera.bottom = -22;
-  key.shadow.bias = -0.0006;
+  key.shadow.camera.left = -32;
+  key.shadow.camera.right = 32;
+  key.shadow.camera.top = 28;
+  key.shadow.camera.bottom = -28;
+  key.shadow.bias = -0.0008;
   scene.add(key);
 
   const stripMat = new THREE.MeshStandardMaterial({
     color: "#ffffff",
-    emissive: new THREE.Color("#fff4e0"),
-    emissiveIntensity: 1.1,
+    emissive: new THREE.Color("#fff8ec"),
+    emissiveIntensity: 1.5,
     roughness: 1,
   });
-  for (let zx = -12; zx <= 12; zx += 6) {
-    for (let xx = -14; xx <= 14; xx += 14) {
-      const strip = new THREE.Mesh(new THREE.BoxGeometry(10, 0.14, 0.7), stripMat);
-      strip.position.set(xx, H - 0.35, zx);
+  const stripGeo = new THREE.BoxGeometry(0.5, 0.1, RUN_LEN + 6);
+  RUN_X.forEach((x, i) => {
+    for (const off of [-4, 4]) {
+      const strip = new THREE.Mesh(stripGeo, stripMat);
+      strip.position.set(x + off, H - 0.75, (RUN_Z0 + RUN_Z1) / 2);
       scene.add(strip);
-      const pl = new THREE.PointLight("#fff2dd", 9, 18, 2);
-      pl.position.set(xx, H - 0.8, zx);
+    }
+    if (i % 2 === 0) {
+      const pl = new THREE.PointLight("#fff4e2", 12, 26, 2);
+      pl.position.set(x, H - 1.6, (RUN_Z0 + RUN_Z1) / 2);
       scene.add(pl);
     }
+  });
+  for (const z of [10, 16]) {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(W - 8, 0.1, 0.5), stripMat);
+    strip.position.set(0, H - 0.75, z);
+    scene.add(strip);
+    const pl = new THREE.PointLight("#fff4e2", 10, 30, 2);
+    pl.position.set(0, H - 1.6, z);
+    scene.add(pl);
   }
 
   // ---------- colliders ----------
@@ -202,159 +270,465 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       new THREE.Box3(new THREE.Vector3(cx - sx / 2, 0, cz - sz / 2), new THREE.Vector3(cx + sx / 2, 3, cz + sz / 2)),
     );
 
-  // ---------- shelves + products ----------
-  const products: THREE.Mesh[] = [];
-  const shelfMetal = new THREE.MeshStandardMaterial({ color: "#98a1ab", roughness: 0.55, metalness: 0.35 });
-  const shelfBack = new THREE.MeshStandardMaterial({ color: "#69727c", roughness: 0.8, metalness: 0.15 });
+  // ---------- shared shelf materials ----------
+  const shelfSteel = new THREE.MeshStandardMaterial({ color: "#c3c9cf", roughness: 0.34, metalness: 0.85 });
+  const shelfDeck = new THREE.MeshStandardMaterial({ color: "#d6dade", roughness: 0.3, metalness: 0.8 });
+  const pegboard = (() => {
+    const [c, g] = makeCanvas(128, 128);
+    g.fillStyle = "#aeb6bd";
+    g.fillRect(0, 0, 128, 128);
+    g.fillStyle = "rgba(60,66,72,0.55)";
+    for (let y = 8; y < 128; y += 16)
+      for (let x = 8; x < 128; x += 16) {
+        g.beginPath();
+        g.arc(x, y, 2.4, 0, Math.PI * 2);
+        g.fill();
+      }
+    const t = toTex(c, [10, 3]);
+    return new THREE.MeshStandardMaterial({ map: t, color: "#f0f3f5", roughness: 0.5, metalness: 0.6 });
+  })();
 
-  const signCanvas = (text: string) => {
-    const c = document.createElement("canvas");
-    c.width = 512;
-    c.height = 128;
-    const g = c.getContext("2d")!;
-    g.fillStyle = "#12324f";
-    g.fillRect(0, 0, 512, 128);
+  const signTex = (text: string, sub: string, color: string) => {
+    const [c, g] = makeCanvas(768, 256);
+    g.fillStyle = color;
+    g.fillRect(0, 0, 768, 256);
+    g.fillStyle = "rgba(255,255,255,0.12)";
+    g.fillRect(0, 0, 768, 90);
     g.fillStyle = "#ffffff";
-    g.font = "bold 62px Helvetica, Arial, sans-serif";
     g.textAlign = "center";
     g.textBaseline = "middle";
-    g.fillText(text.toUpperCase(), 256, 68);
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
+    g.font = "800 108px Helvetica, Arial, sans-serif";
+    g.fillText(text, 384, 96);
+    g.font = "600 46px Helvetica, Arial, sans-serif";
+    g.fillText(sub.toUpperCase(), 384, 190);
+    return toTex(c);
   };
 
-  const UNIT_W = 8,
-    UNIT_D = 1.5;
-
-  function spawnOnShelf(p: ProductDef, x: number, y: number, z: number, faceZ: number) {
-    const mesh = makeProductMesh(p, texCache.get(p.id)!);
-    mesh.position.set(x, y, z + faceZ * 0.32);
-    mesh.rotation.y = faceZ > 0 ? 0 : Math.PI;
-    mesh.userData['productId'] = p.id;
-    scene.add(mesh);
-    products.push(mesh);
-  }
-
+  // ---------- products + gondola runs ----------
+  const products: THREE.Mesh[] = [];
   const texCache = new Map<string, THREE.Texture>();
-  CATALOG.forEach((p) => texCache.set(p.id, labelTexture(p)));
+  const matCache = new Map<string, THREE.MeshStandardMaterial>();
+  CATALOG.forEach((p) => {
+    const t = labelTexture(p);
+    texCache.set(p.id, t);
+    matCache.set(p.id, productMaterial(p, t));
+  });
+  const meshFor = (p: ProductDef) => new THREE.Mesh(shapeGeo(p.shape), matCache.get(p.id)!);
 
-  AISLES.forEach((aisle, i) => {
-    const [cx, cz] = SLOTS[i] ?? [0, 0];
+  const SHELF_Y = [0.5, 1.0, 1.5, 1.98];
+
+  RUN_X.forEach((cx, runIndex) => {
     const group = new THREE.Group();
-    group.position.set(cx, 0, cz);
+    group.position.set(cx, 0, (RUN_Z0 + RUN_Z1) / 2);
     scene.add(group);
-    addCollider(cx, cz, UNIT_W + 0.2, UNIT_D + 0.2);
+    addCollider(cx, (RUN_Z0 + RUN_Z1) / 2, RUN_HALF_D * 2 + 0.5, RUN_LEN + 0.2);
 
-    const back = new THREE.Mesh(new THREE.BoxGeometry(UNIT_W, 2.3, 0.08), shelfBack);
-    back.position.y = 1.15;
-    back.castShadow = back.receiveShadow = true;
-    group.add(back);
+    // pegboard spine (both faces)
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.25, RUN_LEN), pegboard);
+    spine.position.y = 1.14;
+    spine.castShadow = spine.receiveShadow = true;
+    group.add(spine);
 
-    const base = new THREE.Mesh(new THREE.BoxGeometry(UNIT_W, 0.25, UNIT_D), shelfMetal);
-    base.position.y = 0.12;
-    base.castShadow = base.receiveShadow = true;
+    // kickplate base
+    const base = new THREE.Mesh(new THREE.BoxGeometry(RUN_HALF_D * 2, 0.16, RUN_LEN), shelfSteel);
+    base.position.y = 0.08;
+    base.receiveShadow = true;
     group.add(base);
 
-    const boardYs = [0.62, 1.24, 1.86];
-    boardYs.forEach((by) => {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(UNIT_W, 0.06, UNIT_D), shelfMetal);
-      b.position.y = by;
-      b.castShadow = b.receiveShadow = true;
-      group.add(b);
-    });
-
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(3.4, 0.85),
-      new THREE.MeshStandardMaterial({ map: signCanvas(aisle), roughness: 0.7 }),
-    );
-    sign.position.set(0, 2.9, 0.06);
-    group.add(sign);
-    const sign2 = sign.clone();
-    sign2.rotation.y = Math.PI;
-    sign2.position.z = -0.06;
-    group.add(sign2);
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.2, 10), shelfMetal);
-    post.position.y = 2.45;
-    group.add(post);
-
-    const items = CATALOG.filter((p) => p.aisle === aisle);
-    let n = 0;
-    boardYs.forEach((by) => {
-      for (let x = -UNIT_W / 2 + 0.45; x <= UNIT_W / 2 - 0.45; x += 0.44) {
-        const p = items[Math.floor(n / 5) % items.length]!;
-        spawnOnShelf(p, cx + x, by + 0.2, cz, 1);
-        spawnOnShelf(p, cx + x, by + 0.2, cz, -1);
-        n++;
+    // vertical uprights every 2.2m
+    for (let z = -RUN_LEN / 2; z <= RUN_LEN / 2 + 0.01; z += 2.2) {
+      for (const s of [-1, 1]) {
+        const up = new THREE.Mesh(new THREE.BoxGeometry(0.07, 2.3, 0.09), shelfSteel);
+        up.position.set(s * RUN_HALF_D * 0.85, 1.15, z);
+        up.castShadow = true;
+        group.add(up);
       }
-    });
+    }
 
+    // shelf decks + front price rails, per side
+    for (const s of [-1, 1]) {
+      SHELF_Y.forEach((y) => {
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(RUN_HALF_D - 0.06, 0.035, RUN_LEN), shelfDeck);
+        deck.position.set((s * (RUN_HALF_D + 0.07)) / 2, y, 0);
+        deck.receiveShadow = true;
+        deck.castShadow = true;
+        group.add(deck);
+
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.075, RUN_LEN), shelfSteel);
+        rail.position.set(s * (RUN_HALF_D - 0.02), y + 0.05, 0);
+        group.add(rail);
+      });
+    }
+
+    // aisle marker sign hanging over the run
+    const aisleA = AISLES[runIndex * 2] ?? "Grocery";
+    const aisleB = AISLES[runIndex * 2 + 1] ?? "Grocery";
+    const signColors = ["#12406b", "#8c1d2c", "#0f5c46", "#5a2d82", "#a35a08"];
+    const sc = signColors[runIndex % signColors.length]!;
+    const signGeo = new THREE.PlaneGeometry(3.6, 1.2);
+    for (const s of [-1, 1]) {
+      const face = s < 0 ? aisleA : aisleB;
+      const sign = new THREE.Mesh(
+        signGeo,
+        new THREE.MeshStandardMaterial({
+          map: signTex(String(runIndex * 2 + (s < 0 ? 1 : 2)), face, sc),
+          roughness: 0.55,
+          emissive: new THREE.Color(sc),
+          emissiveIntensity: 0.18,
+        }),
+      );
+      sign.position.set(s * 0.09, 3.35, RUN_LEN / 2 - 1.2);
+      sign.rotation.y = s < 0 ? -Math.PI / 2 : Math.PI / 2;
+      group.add(sign);
+      const sign2 = sign.clone();
+      sign2.position.z = -RUN_LEN / 2 + 1.2;
+      group.add(sign2);
+    }
+    for (const z of [RUN_LEN / 2 - 1.2, -RUN_LEN / 2 + 1.2]) {
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.6, 8), shelfSteel);
+      rod.position.set(0, 4.3, z);
+      group.add(rod);
+    }
+
+    // ---- stock both faces ----
+    for (const s of [-1, 1]) {
+      const aisle = s < 0 ? aisleA : aisleB;
+      const items = CATALOG.filter((p) => p.aisle === aisle);
+      if (!items.length) continue;
+      const perItem = Math.max(2, Math.floor(RUN_LEN / 0.62 / items.length));
+      SHELF_Y.forEach((y, level) => {
+        let n = 0;
+        for (let z = -RUN_LEN / 2 + 0.45; z <= RUN_LEN / 2 - 0.45; z += 0.62) {
+          const p = items[Math.floor((n / perItem + level) % items.length)]!;
+          const m = meshFor(p);
+          const yOff =
+            p.shape === "tray" ? 0.07 : p.shape === "produce" ? 0.13 : p.shape === "tub" ? 0.1 : p.shape === "jar" ? 0.12 : 0.17;
+          m.position.set(cx + s * (RUN_HALF_D - 0.18), y + yOff, (RUN_Z0 + RUN_Z1) / 2 + z + (Math.random() - 0.5) * 0.04);
+          m.rotation.y = s < 0 ? -Math.PI / 2 : Math.PI / 2;
+          m.userData['productId'] = p.id;
+          scene.add(m);
+          products.push(m);
+          n++;
+        }
+      });
+    }
   });
 
-  // ---------- checkout area ----------
-  const kioskPos = new THREE.Vector3(0, 0, 10);
-  const counterMat = new THREE.MeshStandardMaterial({ color: "#e6e8ea", roughness: 0.35, metalness: 0.2 });
-  const darkMat = new THREE.MeshStandardMaterial({ color: "#1d2228", roughness: 0.5, metalness: 0.4 });
+  // ---------- produce tables + open coolers at the front ----------
+  const woodMat = new THREE.MeshStandardMaterial({ color: "#8a6136", roughness: 0.7 });
+  for (let i = 0; i < 3; i++) {
+    const t = new THREE.Group();
+    t.position.set(-22 + i * 0, 0, 0);
+    const table = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.75, 2.6), woodMat);
+    table.position.set(-24, 0.38, -8 + i * 6);
+    table.castShadow = table.receiveShadow = true;
+    scene.add(table);
+    addCollider(-24, -8 + i * 6, 2.8, 2.8);
+    const produceItems = CATALOG.filter((p) => p.aisle === "Produce");
+    for (let k = 0; k < 14; k++) {
+      const p = produceItems[(k + i * 3) % produceItems.length]!;
+      const m = meshFor(p);
+      m.position.set(-24 + (Math.random() - 0.5) * 2.1, 0.82 + Math.random() * 0.08, -8 + i * 6 + (Math.random() - 0.5) * 2.1);
+      m.rotation.set(Math.random(), Math.random(), Math.random());
+      m.userData['productId'] = p.id;
+      scene.add(m);
+      products.push(m);
+    }
+    scene.add(t);
+  }
 
-  for (let i = -1; i <= 1; i++) {
+  // ---------- checkout front end ----------
+  const kiosks: THREE.Vector3[] = [];
+  const counterMat = new THREE.MeshStandardMaterial({ color: "#f2f4f6", roughness: 0.3, metalness: 0.25 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: "#1b2027", roughness: 0.45, metalness: 0.5 });
+  const beltMat = new THREE.MeshStandardMaterial({ color: "#22262b", roughness: 0.9 });
+
+  for (let i = -2; i <= 2; i++) {
     const g = new THREE.Group();
-    g.position.set(i * 5, 0, 10);
+    const x = i * 5.5;
+    const z = 13;
+    g.position.set(x, 0, z);
     scene.add(g);
-    addCollider(i * 5, 10, 2.2, 1.4);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 1.2), counterMat);
-    body.position.y = 0.5;
+    addCollider(x, z, 2.4, 2.2);
+    kiosks.push(new THREE.Vector3(x, 0, z));
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(2.1, 1.02, 1.8), counterMat);
+    body.position.y = 0.51;
     body.castShadow = body.receiveShadow = true;
     g.add(body);
-    const scale = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 0.9), darkMat);
-    scale.position.set(0, 1.05, 0);
-    g.add(scale);
-    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.7, 10), darkMat);
-    stand.position.set(-0.7, 1.35, -0.3);
+    const belt = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.05, 1.1), beltMat);
+    belt.position.y = 1.05;
+    g.add(belt);
+    const scanner = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.16, 0.5), darkMat);
+    scanner.position.set(0.55, 1.12, 0);
+    g.add(scanner);
+    const scanGlow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 0.3),
+      new THREE.MeshStandardMaterial({ color: "#ff2a2a", emissive: new THREE.Color("#ff2a2a"), emissiveIntensity: 2 }),
+    );
+    scanGlow.rotation.x = -Math.PI / 2;
+    scanGlow.position.set(0.55, 1.21, 0);
+    g.add(scanGlow);
+
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.75, 10), darkMat);
+    stand.position.set(-0.75, 1.4, -0.35);
     g.add(stand);
     const screen = new THREE.Mesh(
-      new THREE.BoxGeometry(0.9, 0.62, 0.06),
+      new THREE.BoxGeometry(0.85, 0.58, 0.06),
       new THREE.MeshStandardMaterial({
         color: "#0b1a2b",
-        emissive: new THREE.Color(i === 0 ? "#2ea8ff" : "#123a55"),
-        emissiveIntensity: i === 0 ? 1.4 : 0.5,
-        roughness: 0.3,
+        emissive: new THREE.Color("#2ea8ff"),
+        emissiveIntensity: 1.1,
+        roughness: 0.25,
       }),
     );
-    screen.position.set(-0.7, 1.75, -0.3);
-    screen.rotation.y = 0.25;
+    screen.position.set(-0.75, 1.85, -0.35);
+    screen.rotation.y = 0.3;
     g.add(screen);
-    const beacon = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 16, 12),
-      new THREE.MeshStandardMaterial({
-        color: "#fff",
-        emissive: new THREE.Color(i === 0 ? "#31d67a" : "#c8cdd3"),
-        emissiveIntensity: 2,
-      }),
-    );
-    beacon.position.set(0.8, 2.15, -0.3);
-    g.add(beacon);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.1, 8), darkMat);
-    pole.position.set(0.8, 1.6, -0.3);
+
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.5, 8), darkMat);
+    pole.position.set(0.9, 1.8, -0.4);
     g.add(pole);
+    const beacon = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 16, 12),
+      new THREE.MeshStandardMaterial({ color: "#fff", emissive: new THREE.Color("#39d17a"), emissiveIntensity: 2.4 }),
+    );
+    beacon.position.set(0.9, 2.6, -0.4);
+    g.add(beacon);
+    const laneSign = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.5, 0.75),
+      new THREE.MeshStandardMaterial({ map: signTex(String(i + 3), "self checkout", "#0f5c46"), roughness: 0.6 }),
+    );
+    laneSign.position.set(0, 3.1, -0.4);
+    g.add(laneSign);
   }
-  const kioskLight = new THREE.PointLight("#39d17a", 8, 8, 2);
-  kioskLight.position.set(0, 2.4, 10);
+  const kioskLight = new THREE.PointLight("#4bf0a0", 10, 20, 2);
+  kioskLight.position.set(0, 3, 13);
   scene.add(kioskLight);
 
-  // entrance doors / windows
+  // entrance storefront glass
   const glass = new THREE.MeshPhysicalMaterial({
-    color: "#cfe6f2",
-    transmission: 0.85,
-    roughness: 0.08,
-    thickness: 0.2,
+    color: "#d8ecf6",
+    transmission: 0.9,
+    roughness: 0.05,
+    thickness: 0.25,
     metalness: 0,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.45,
   });
-  const win = new THREE.Mesh(new THREE.PlaneGeometry(18, 3.4), glass);
-  win.position.set(0, 1.9, D / 2 - 0.02);
+  const win = new THREE.Mesh(new THREE.PlaneGeometry(30, 4.2), glass);
+  win.position.set(0, 2.3, D / 2 - 0.05);
   win.rotation.y = Math.PI;
   scene.add(win);
+  for (let x = -15; x <= 15; x += 3) {
+    const mull = new THREE.Mesh(new THREE.BoxGeometry(0.12, 4.4, 0.12), steel);
+    mull.position.set(x, 2.3, D / 2 - 0.1);
+    scene.add(mull);
+  }
+
+  // ---------- shopping cart (first person, visible when looking down) ----------
+  function buildCart(tint: string, small = false) {
+    const g = new THREE.Group();
+    const chrome = new THREE.MeshStandardMaterial({ color: "#dfe4e8", roughness: 0.22, metalness: 0.95 });
+    const plastic = new THREE.MeshStandardMaterial({ color: tint, roughness: 0.4, metalness: 0.1 });
+    const s = small ? 0.85 : 1;
+
+    const basket = new THREE.Group();
+    basket.position.y = 0.62 * s;
+    // wire basket: floor + 4 walls made of thin bars
+    const barGeoZ = new THREE.BoxGeometry(0.02, 0.02, 0.78 * s);
+    const barGeoX = new THREE.BoxGeometry(0.62 * s, 0.02, 0.02);
+    for (let i = -4; i <= 4; i++) {
+      const b = new THREE.Mesh(barGeoZ, chrome);
+      b.position.set((i / 4) * 0.3 * s, 0, 0);
+      basket.add(b);
+    }
+    for (let i = -5; i <= 5; i++) {
+      const b = new THREE.Mesh(barGeoX, chrome);
+      b.position.set(0, 0, (i / 5) * 0.38 * s);
+      basket.add(b);
+    }
+    const wall = (w: number, h: number, x: number, z: number, ry: number) => {
+      const wg = new THREE.Group();
+      for (let i = 0; i <= 8; i++) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(0.018, h, 0.018), chrome);
+        b.position.set((i / 8 - 0.5) * w, h / 2, 0);
+        wg.add(b);
+      }
+      for (let j = 0; j <= 3; j++) {
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w, 0.018, 0.018), chrome);
+        b.position.set(0, (j / 3) * h, 0);
+        wg.add(b);
+      }
+      wg.position.set(x, 0, z);
+      wg.rotation.y = ry;
+      basket.add(wg);
+    };
+    wall(0.78 * s, 0.34 * s, 0.31 * s, 0, Math.PI / 2);
+    wall(0.78 * s, 0.34 * s, -0.31 * s, 0, Math.PI / 2);
+    wall(0.62 * s, 0.34 * s, 0, 0.39 * s, 0);
+    wall(0.62 * s, 0.34 * s, 0, -0.39 * s, 0);
+    g.add(basket);
+
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.62 * s, 10), plastic);
+    handle.rotation.z = Math.PI / 2;
+    handle.position.set(0, 1.0 * s, -0.42 * s);
+    g.add(handle);
+    for (const sx of [-1, 1]) {
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.42 * s, 8), chrome);
+      post.position.set(sx * 0.3 * s, 0.79 * s, -0.42 * s);
+      g.add(post);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.6 * s, 8), chrome);
+      leg.position.set(sx * 0.28 * s, 0.3 * s, 0.3 * s);
+      g.add(leg);
+      const leg2 = leg.clone();
+      leg2.position.z = -0.3 * s;
+      g.add(leg2);
+      for (const sz of [-1, 1]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.04, 12), plastic);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(sx * 0.28 * s, 0.06, sz * 0.3 * s);
+        g.add(wheel);
+      }
+    }
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5 * s, 0.16 * s, 0.02), plastic);
+    plate.position.set(0, 0.72 * s, -0.4 * s);
+    g.add(plate);
+    return { group: g, basketY: 0.66 * s };
+  }
+
+  const cart = buildCart("#c8202c");
+  scene.add(cart.group);
+  const cartItems: THREE.Mesh[] = [];
+  const cartAnchor = new THREE.Object3D();
+
+  function layoutCart() {
+    cartItems.forEach((m, i) => {
+      const col = i % 3;
+      const row = Math.floor(i / 3) % 4;
+      const layer = Math.floor(i / 12);
+      m.position.set(-0.2 + col * 0.2, cart.basketY + 0.08 + layer * 0.17, -0.28 + row * 0.19);
+      m.rotation.set(0, (i % 5) * 0.4, 0);
+    });
+  }
+
+  function addToCart(id: string) {
+    const p = byId(id);
+    const m = meshFor(p);
+    m.castShadow = false;
+    m.userData['productId'] = id;
+    cart.group.add(m);
+    cartItems.push(m);
+    layoutCart();
+  }
+
+  function removeFromCart(id: string) {
+    const idx = cartItems.findIndex((m) => m.userData['productId'] === id);
+    if (idx >= 0) {
+      const [m] = cartItems.splice(idx, 1);
+      m && cart.group.remove(m);
+      layoutCart();
+    }
+  }
+
+  // ---------- shoppers (NPCs) + remote players ----------
+  const skinTones = ["#e8c39e", "#c98b62", "#8d5a3b", "#f0d5bd", "#5f3b28"];
+  const shirtTones = ["#2f5d8f", "#8c2f3a", "#2f7d55", "#5a3d8f", "#c26a1e", "#37414b"];
+
+  function buildAvatar(shirt: string, skin: string, withCart: boolean) {
+    const g = new THREE.Group();
+    const shirtMat = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.85 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: "#2b3038", roughness: 0.9 });
+    const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.7 });
+
+    const legs = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.55, 4, 10), pantsMat);
+    legs.position.y = 0.5;
+    legs.castShadow = true;
+    g.add(legs);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.23, 0.5, 4, 12), shirtMat);
+    torso.position.y = 1.12;
+    torso.castShadow = true;
+    g.add(torso);
+    for (const s of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.44, 4, 8), shirtMat);
+      arm.position.set(s * 0.27, 1.12, 0.05);
+      arm.rotation.x = -0.5;
+      g.add(arm);
+    }
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.155, 18, 16), skinMat);
+    head.position.y = 1.55;
+    head.castShadow = true;
+    g.add(head);
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.163, 16, 14, 0, Math.PI * 2, 0, Math.PI / 1.9), new THREE.MeshStandardMaterial({ color: "#2a1e18", roughness: 0.95 }));
+    hair.position.y = 1.57;
+    g.add(hair);
+    if (withCart) {
+      const c = buildCart("#3a4550", true);
+      c.group.position.set(0, 0, 0.75);
+      g.add(c.group);
+    }
+    return g;
+  }
+
+  type Npc = { group: THREE.Group; target: THREE.Vector3; speed: number; phase: number };
+  const npcs: Npc[] = [];
+  const laneXs = RUN_X.map((x, i) => (i < RUN_X.length - 1 ? (x + RUN_X[i + 1]!) / 2 : x + 8));
+  const randomLanePoint = () => {
+    const x = laneXs[Math.floor(Math.random() * laneXs.length)]!;
+    const z = Math.random() < 0.25 ? 9 + Math.random() * 6 : RUN_Z0 + Math.random() * RUN_LEN;
+    return new THREE.Vector3(x, 0, z);
+  };
+  for (let i = 0; i < 10; i++) {
+    const g = buildAvatar(shirtTones[i % shirtTones.length]!, skinTones[i % skinTones.length]!, i % 2 === 0);
+    const start = randomLanePoint();
+    g.position.copy(start);
+    scene.add(g);
+    npcs.push({ group: g, target: randomLanePoint(), speed: 1.1 + Math.random() * 0.8, phase: Math.random() * 10 });
+  }
+
+  // remote players
+  const remotes = new Map<string, { group: THREE.Group; target: THREE.Vector3; yaw: number; label: THREE.Sprite }>();
+  function nameSprite(name: string, color: string) {
+    const [c, g] = makeCanvas(256, 64);
+    g.fillStyle = "rgba(12,16,22,0.72)";
+    g.fillRect(0, 8, 256, 48);
+    g.fillStyle = color;
+    g.fillRect(0, 8, 6, 48);
+    g.fillStyle = "#ffffff";
+    g.font = "600 28px Helvetica, Arial, sans-serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText(name.slice(0, 14), 132, 32);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: toTex(c), depthTest: false, transparent: true }));
+    sp.scale.set(1.3, 0.33, 1);
+    sp.position.y = 2.0;
+    return sp;
+  }
+
+  function setRemotePlayers(list: RemotePlayer[]) {
+    const seen = new Set<string>();
+    for (const rp of list) {
+      seen.add(rp.id);
+      let entry = remotes.get(rp.id);
+      if (!entry) {
+        const group = buildAvatar(rp.color, skinTones[Math.floor(Math.random() * skinTones.length)]!, true);
+        const label = nameSprite(rp.name, rp.color);
+        group.add(label);
+        scene.add(group);
+        group.position.set(rp.x, 0, rp.z);
+        entry = { group, target: new THREE.Vector3(rp.x, 0, rp.z), yaw: rp.yaw, label };
+        remotes.set(rp.id, entry);
+      }
+      entry.target.set(rp.x, 0, rp.z);
+      entry.yaw = rp.yaw;
+    }
+    for (const [id, entry] of remotes) {
+      if (!seen.has(id)) {
+        scene.remove(entry.group);
+        remotes.delete(id);
+      }
+    }
+  }
 
   // ---------- input ----------
   const keys = new Set<string>();
@@ -366,8 +740,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
   const onMouseMove = (e: MouseEvent) => {
     if (!locked) return;
-    player.yaw -= e.movementX * 0.0022;
-    player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * 0.0022, -1.3, 1.3);
+    player.yaw -= e.movementX * 0.0021;
+    player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * 0.0021, -1.35, 1.2);
   };
   const onLock = () => {
     locked = document.pointerLockElement === canvas;
@@ -379,7 +753,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   document.addEventListener("pointerlockchange", onLock);
 
   const raycaster = new THREE.Raycaster();
-  raycaster.far = 3.2;
+  raycaster.far = 3.4;
   let target: THREE.Mesh | null = null;
   let atKiosk = false;
 
@@ -392,8 +766,10 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     if (target) {
       const id = target.userData['productId'] as string;
       scene.remove(target);
-      products.splice(products.indexOf(target), 1);
+      const i = products.indexOf(target);
+      if (i >= 0) products.splice(i, 1);
       target = null;
+      addToCart(id);
       cb.onPickup(id);
     }
   }
@@ -402,6 +778,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const clock = new THREE.Clock();
   let raf = 0;
   const tmpBox = new THREE.Box3();
+  const tmpV = new THREE.Vector3();
 
   function move(dt: number) {
     const dir = new THREE.Vector3();
@@ -411,46 +788,87 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     if (keys.has("KeyS") || keys.has("ArrowDown")) dir.sub(fwd);
     if (keys.has("KeyD") || keys.has("ArrowRight")) dir.add(right);
     if (keys.has("KeyA") || keys.has("ArrowLeft")) dir.sub(right);
-    const speed = keys.has("ShiftLeft") ? 6.2 : 3.4;
+    const speed = keys.has("ShiftLeft") ? 5.8 : 3.2;
     if (dir.lengthSq() > 0) dir.normalize().multiplyScalar(speed);
     player.vel.lerp(dir, 1 - Math.pow(0.0015, dt));
 
-    const r = 0.42;
+    const r = 0.4;
     const tryAxis = (axis: "x" | "z", amount: number) => {
       const old = player.pos[axis];
       player.pos[axis] += amount;
-      tmpBox.setFromCenterAndSize(
-        new THREE.Vector3(player.pos.x, 1, player.pos.z),
-        new THREE.Vector3(r * 2, 2, r * 2),
-      );
+      tmpBox.setFromCenterAndSize(tmpV.set(player.pos.x, 1, player.pos.z), new THREE.Vector3(r * 2, 2, r * 2));
       if (colliders.some((c) => c.intersectsBox(tmpBox))) player.pos[axis] = old;
     };
     tryAxis("x", player.vel.x * dt);
     tryAxis("z", player.vel.z * dt);
-    player.pos.x = THREE.MathUtils.clamp(player.pos.x, -W / 2 + 0.6, W / 2 - 0.6);
-    player.pos.z = THREE.MathUtils.clamp(player.pos.z, -D / 2 + 0.6, D / 2 - 0.6);
+    player.pos.x = THREE.MathUtils.clamp(player.pos.x, -W / 2 + 0.8, W / 2 - 0.8);
+    player.pos.z = THREE.MathUtils.clamp(player.pos.z, -D / 2 + 0.8, D / 2 - 0.8);
 
-    const bob = Math.sin(clock.elapsedTime * 9) * Math.min(player.vel.length() / speed, 1) * 0.045;
-    camera.position.set(player.pos.x, 1.62 + bob, player.pos.z);
+    const bob = Math.sin(clock.elapsedTime * 9) * Math.min(player.vel.length() / speed, 1) * 0.04;
+    camera.position.set(player.pos.x, 1.68 + bob, player.pos.z);
     camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
   }
 
+  function updateCart(dt: number) {
+    const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+    cartAnchor.position.set(player.pos.x + fwd.x * 1.05, 0, player.pos.z + fwd.z * 1.05);
+    cart.group.position.lerp(cartAnchor.position, 1 - Math.pow(0.0008, dt));
+    const wanted = player.yaw;
+    let delta = ((wanted - cart.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
+    cart.group.rotation.y += delta * Math.min(1, dt * 8);
+  }
+
   let lastPrompt: string | null = null;
+  const nearby: THREE.Mesh[] = [];
   function updatePrompt() {
-    atKiosk = camera.position.distanceTo(kioskPos) < 2.6;
+    let bestK = Infinity;
+    for (const k of kiosks) bestK = Math.min(bestK, camera.position.distanceTo(k));
+    atKiosk = bestK < 2.8;
     let text: string | null = null;
     if (atKiosk) {
       text = "Use self-checkout  [E]";
       target = null;
     } else {
+      nearby.length = 0;
+      for (const p of products) {
+        if (p.position.distanceToSquared(camera.position) < 16) nearby.push(p);
+      }
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-      const hit = raycaster.intersectObjects(products, false)[0];
+      const hit = raycaster.intersectObjects(nearby, false)[0];
       target = (hit?.object as THREE.Mesh) ?? null;
-      if (target) text = `Take ${byId(target.userData['productId'] as string).name}  [E]`;
+      if (target) {
+        const p = byId(target.userData['productId'] as string);
+        text = `Take ${p.brand} ${p.name}  ·  $${p.price.toFixed(2)}  [E]`;
+      }
     }
     if (text !== lastPrompt) {
       lastPrompt = text;
       cb.onPrompt(text);
+    }
+  }
+
+  function updateNpcs(dt: number, t: number) {
+    for (const n of npcs) {
+      const dx = n.target.x - n.group.position.x;
+      const dz = n.target.z - n.group.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 0.6) {
+        n.target = randomLanePoint();
+        continue;
+      }
+      const vx = (dx / dist) * n.speed;
+      const vz = (dz / dist) * n.speed;
+      n.group.position.x += vx * dt;
+      n.group.position.z += vz * dt;
+      const wanted = Math.atan2(vx, vz);
+      let delta = ((wanted - n.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
+      n.group.rotation.y += delta * Math.min(1, dt * 4);
+      n.group.position.y = Math.abs(Math.sin(t * 6 + n.phase)) * 0.03;
+    }
+    for (const [, r] of remotes) {
+      r.group.position.lerp(r.target, Math.min(1, dt * 6));
+      let delta = ((r.yaw + Math.PI - r.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
+      r.group.rotation.y += delta * Math.min(1, dt * 6);
     }
   }
 
@@ -464,30 +882,45 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   window.addEventListener("resize", resize);
   resize();
 
+  let netAcc = 0;
   function tick() {
     raf = requestAnimationFrame(tick);
     const dt = Math.min(clock.getDelta(), 0.05);
+    const t = clock.elapsedTime;
     if (locked) move(dt);
-    else camera.position.set(player.pos.x, 1.62, player.pos.z);
+    else camera.position.set(player.pos.x, 1.68, player.pos.z);
+    updateCart(dt);
     updatePrompt();
-    kioskLight.intensity = 7 + Math.sin(clock.elapsedTime * 2) * 2;
+    updateNpcs(dt, t);
+    kioskLight.intensity = 8 + Math.sin(t * 2) * 2;
+    netAcc += dt;
+    if (netAcc > 0.1) {
+      netAcc = 0;
+      cb.onMove?.(player.pos.x, player.pos.z, player.yaw);
+    }
     renderer.render(scene, camera);
   }
   tick();
 
-  (window as unknown as Record<string, unknown>)['__three'] = { scene, camera, products, player };
+  (window as unknown as Record<string, unknown>)['__three'] = { scene, camera, products, player, colliders };
 
   return {
     lock: () => canvas.requestPointerLock(),
-    dropItem: (id: string) => {
+    setRemotePlayers,
+    returnItem: (id: string) => {
+      removeFromCart(id);
       const p = byId(id);
-      const mesh = makeProductMesh(p, texCache.get(id)!);
+      const mesh = meshFor(p);
       const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-      mesh.position.copy(camera.position).add(fwd.multiplyScalar(1.1));
-      mesh.position.y = 1.1;
+      mesh.position.copy(camera.position).add(fwd.multiplyScalar(1.3));
+      mesh.position.y = 1.12;
       mesh.userData['productId'] = id;
       scene.add(mesh);
       products.push(mesh);
+    },
+    clearCart: () => {
+      cartItems.forEach((m) => cart.group.remove(m));
+      cartItems.length = 0;
     },
     dispose: () => {
       cancelAnimationFrame(raf);
@@ -498,6 +931,10 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       window.removeEventListener("resize", resize);
       renderer.dispose();
       pmrem.dispose();
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.geometry) m.geometry.dispose?.();
+      });
     },
   };
 }
