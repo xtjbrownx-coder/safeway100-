@@ -204,8 +204,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   // ---------- shelves + products ----------
   const products: THREE.Mesh[] = [];
-  const shelfMetal = new THREE.MeshStandardMaterial({ color: "#b8bec6", roughness: 0.4, metalness: 0.75 });
-  const shelfBack = new THREE.MeshStandardMaterial({ color: "#8e959d", roughness: 0.6, metalness: 0.5 });
+  const shelfMetal = new THREE.MeshStandardMaterial({ color: "#98a1ab", roughness: 0.55, metalness: 0.35 });
+  const shelfBack = new THREE.MeshStandardMaterial({ color: "#69727c", roughness: 0.8, metalness: 0.15 });
 
   const signCanvas = (text: string) => {
     const c = document.createElement("canvas");
@@ -281,8 +281,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const items = CATALOG.filter((p) => p.aisle === aisle);
     items.forEach((p, idx) => {
       const shelfY = (boardYs[idx % boardYs.length] ?? 0.62) + 0.2;
-      const laneStart = -UNIT_W / 2 + 0.8 + Math.floor(idx / boardYs.length) * 2.4;
-      for (let k = 0; k < 4; k++) {
+      const laneStart = -UNIT_W / 2 + 0.8 + Math.floor(idx / boardYs.length) * 2.6;
+      for (let k = 0; k < 5; k++) {
         spawnOnShelf(p, cx + laneStart + k * 0.42, shelfY, cz, 1);
         spawnOnShelf(p, cx + laneStart + k * 0.42, shelfY, cz, -1);
       }
