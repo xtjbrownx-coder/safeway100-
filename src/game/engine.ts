@@ -473,6 +473,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   }
   tick();
 
+  (window as unknown as Record<string, unknown>)['__three'] = { scene, camera, products, player };
+
   return {
     lock: () => canvas.requestPointerLock(),
     dropItem: (id: string) => {
