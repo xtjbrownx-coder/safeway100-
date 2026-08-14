@@ -279,14 +279,16 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     group.add(post);
 
     const items = CATALOG.filter((p) => p.aisle === aisle);
-    items.forEach((p, idx) => {
-      const shelfY = (boardYs[idx % boardYs.length] ?? 0.62) + 0.2;
-      const laneStart = -UNIT_W / 2 + 0.8 + Math.floor(idx / boardYs.length) * 2.6;
-      for (let k = 0; k < 5; k++) {
-        spawnOnShelf(p, cx + laneStart + k * 0.42, shelfY, cz, 1);
-        spawnOnShelf(p, cx + laneStart + k * 0.42, shelfY, cz, -1);
+    let n = 0;
+    boardYs.forEach((by) => {
+      for (let x = -UNIT_W / 2 + 0.45; x <= UNIT_W / 2 - 0.45; x += 0.44) {
+        const p = items[Math.floor(n / 5) % items.length]!;
+        spawnOnShelf(p, cx + x, by + 0.2, cz, 1);
+        spawnOnShelf(p, cx + x, by + 0.2, cz, -1);
+        n++;
       }
     });
+
   });
 
   // ---------- checkout area ----------
