@@ -139,7 +139,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
 
   const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 220);
-  const player = { pos: new THREE.Vector3(0, 1.68, 18), yaw: Math.PI, pitch: -0.05, vel: new THREE.Vector3() };
+  const player = { pos: new THREE.Vector3(0, 1.68, 18), yaw: 0, pitch: -0.08, vel: new THREE.Vector3() };
 
   // ---------- dimensions ----------
   const W = 58;
@@ -811,7 +811,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   function updateCart(dt: number) {
     const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-    cartAnchor.position.set(player.pos.x + fwd.x * 0.95, 0, player.pos.z + fwd.z * 0.95);
+    cartAnchor.position.set(player.pos.x + fwd.x * 1.05, 0, player.pos.z + fwd.z * 1.05);
     cart.group.position.lerp(cartAnchor.position, 1 - Math.pow(0.0008, dt));
     const wanted = player.yaw;
     let delta = ((wanted - cart.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
