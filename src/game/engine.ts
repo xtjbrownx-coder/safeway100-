@@ -100,7 +100,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#0e1116");
-  scene.fog = new THREE.Fog("#c9d3dd", 26, 60);
+  scene.fog = new THREE.Fog("#b9c2cc", 45, 110);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
