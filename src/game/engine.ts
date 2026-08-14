@@ -902,6 +902,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   }
   tick();
 
+  (window as unknown as Record<string, unknown>)['__three'] = { scene, camera, products, player, colliders };
+
   return {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
