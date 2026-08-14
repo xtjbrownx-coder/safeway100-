@@ -231,7 +231,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const mesh = makeProductMesh(p, texCache.get(p.id)!);
     mesh.position.set(x, y, z + faceZ * 0.32);
     mesh.rotation.y = faceZ > 0 ? 0 : Math.PI;
-    mesh.userData.productId = p.id;
+    mesh.userData['productId'] = p.id;
     scene.add(mesh);
     products.push(mesh);
   }
@@ -240,7 +240,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   CATALOG.forEach((p) => texCache.set(p.id, labelTexture(p)));
 
   AISLES.forEach((aisle, i) => {
-    const [cx, cz] = SLOTS[i];
+    const [cx, cz] = SLOTS[i] ?? [0, 0];
     const group = new THREE.Group();
     group.position.set(cx, 0, cz);
     scene.add(group);
@@ -280,7 +280,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
     const items = CATALOG.filter((p) => p.aisle === aisle);
     items.forEach((p, idx) => {
-      const shelfY = boardYs[idx % boardYs.length] + 0.2;
+      const shelfY = (boardYs[idx % boardYs.length] ?? 0.62) + 0.2;
       const laneStart = -UNIT_W / 2 + 0.8 + Math.floor(idx / boardYs.length) * 2.4;
       for (let k = 0; k < 4; k++) {
         spawnOnShelf(p, cx + laneStart + k * 0.42, shelfY, cz, 1);
@@ -388,7 +388,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       return;
     }
     if (target) {
-      const id = target.userData.productId as string;
+      const id = target.userData['productId'] as string;
       scene.remove(target);
       products.splice(products.indexOf(target), 1);
       target = null;
@@ -444,7 +444,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const hit = raycaster.intersectObjects(products, false)[0];
       target = (hit?.object as THREE.Mesh) ?? null;
-      if (target) text = `Take ${byId(target.userData.productId).name}  [E]`;
+      if (target) text = `Take ${byId(target.userData['productId'] as string).name}  [E]`;
     }
     if (text !== lastPrompt) {
       lastPrompt = text;
@@ -481,7 +481,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
       mesh.position.copy(camera.position).add(fwd.multiplyScalar(1.1));
       mesh.position.y = 1.1;
-      mesh.userData.productId = id;
+      mesh.userData['productId'] = id;
       scene.add(mesh);
       products.push(mesh);
     },
