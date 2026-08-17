@@ -633,7 +633,6 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   // ---------- shoppers (NPCs) + remote players ----------
   const skinTones = ["#e8c39e", "#c98b62", "#8d5a3b", "#f0d5bd", "#5f3b28"];
-  const shirtTones = ["#2f5d8f", "#8c2f3a", "#2f7d55", "#5a3d8f", "#c26a1e", "#37414b"];
 
   function buildAvatar(shirt: string, skin: string, withCart: boolean) {
     const g = new THREE.Group();
@@ -930,6 +929,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   return {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
+    setLeaderboard: (entries: { name: string; total_seconds: number }[]) => drawBoard(entries),
     returnItem: (id: string) => {
       removeFromCart(id);
       const p = byId(id);
