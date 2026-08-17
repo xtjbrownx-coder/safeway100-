@@ -886,30 +886,14 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     }
   }
 
-  function updateNpcs(dt: number, t: number) {
-    for (const n of npcs) {
-      const dx = n.target.x - n.group.position.x;
-      const dz = n.target.z - n.group.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 0.6) {
-        n.target = randomLanePoint();
-        continue;
-      }
-      const vx = (dx / dist) * n.speed;
-      const vz = (dz / dist) * n.speed;
-      n.group.position.x += vx * dt;
-      n.group.position.z += vz * dt;
-      const wanted = Math.atan2(vx, vz);
-      let delta = ((wanted - n.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
-      n.group.rotation.y += delta * Math.min(1, dt * 4);
-      n.group.position.y = Math.abs(Math.sin(t * 6 + n.phase)) * 0.03;
-    }
+  function updateRemotes(dt: number) {
     for (const [, r] of remotes) {
       r.group.position.lerp(r.target, Math.min(1, dt * 6));
       let delta = ((r.yaw + Math.PI - r.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
       r.group.rotation.y += delta * Math.min(1, dt * 6);
     }
   }
+
 
   function resize() {
     const w = canvas.clientWidth || window.innerWidth;
