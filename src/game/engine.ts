@@ -633,7 +633,6 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   // ---------- shoppers (NPCs) + remote players ----------
   const skinTones = ["#e8c39e", "#c98b62", "#8d5a3b", "#f0d5bd", "#5f3b28"];
-  const shirtTones = ["#2f5d8f", "#8c2f3a", "#2f7d55", "#5a3d8f", "#c26a1e", "#37414b"];
 
   function buildAvatar(shirt: string, skin: string, withCart: boolean) {
     const g = new THREE.Group();
@@ -670,21 +669,60 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     return g;
   }
 
-  type Npc = { group: THREE.Group; target: THREE.Vector3; speed: number; phase: number };
-  const npcs: Npc[] = [];
-  const laneXs = RUN_X.map((x, i) => (i < RUN_X.length - 1 ? (x + RUN_X[i + 1]!) / 2 : x + 8));
-  const randomLanePoint = () => {
-    const x = laneXs[Math.floor(Math.random() * laneXs.length)]!;
-    const z = Math.random() < 0.25 ? 9 + Math.random() * 6 : RUN_Z0 + Math.random() * RUN_LEN;
-    return new THREE.Vector3(x, 0, z);
-  };
-  for (let i = 0; i < 10; i++) {
-    const g = buildAvatar(shirtTones[i % shirtTones.length]!, skinTones[i % skinTones.length]!, i % 2 === 0);
-    const start = randomLanePoint();
-    g.position.copy(start);
-    scene.add(g);
-    npcs.push({ group: g, target: randomLanePoint(), speed: 1.1 + Math.random() * 0.8, phase: Math.random() * 10 });
+  // ---------- world leaderboard board (back wall) ----------
+  const boardCanvas = makeCanvas(1024, 768);
+  const boardTex = toTex(boardCanvas[0]);
+  const boardMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(8, 6),
+    new THREE.MeshStandardMaterial({ map: boardTex, emissive: new THREE.Color("#ffffff"), emissiveMap: boardTex, emissiveIntensity: 0.55, roughness: 0.5 }),
+  );
+  boardMesh.position.set(0, 3.2, -D / 2 + 0.08);
+  scene.add(boardMesh);
+  const boardFrame = new THREE.Mesh(new THREE.BoxGeometry(8.5, 6.5, 0.16), shelfSteel);
+  boardFrame.position.set(0, 3.2, -D / 2 - 0.02);
+  scene.add(boardFrame);
+  const boardLight = new THREE.PointLight("#dff3ff", 6, 14, 2);
+  boardLight.position.set(0, 4.6, -D / 2 + 2);
+  scene.add(boardLight);
+
+  function drawBoard(entries: { name: string; total_seconds: number }[]) {
+    const [, g] = boardCanvas;
+    g.fillStyle = "#0d1420";
+    g.fillRect(0, 0, 1024, 768);
+    g.fillStyle = "#c8202c";
+    g.fillRect(0, 0, 1024, 110);
+    g.fillStyle = "#ffffff";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.font = "800 62px Helvetica, Arial, sans-serif";
+    g.fillText("WORLD LEADERBOARD", 512, 56);
+    g.font = "600 30px Helvetica, Arial, sans-serif";
+    g.fillStyle = "#8fe3b6";
+    g.fillText("FASTEST 10-LEVEL SHOPPING RUNS", 512, 148);
+    const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+    if (!entries.length) {
+      g.fillStyle = "#7f8b9b";
+      g.font = "500 34px Helvetica, Arial, sans-serif";
+      g.fillText("No runs yet — be the first to finish", 512, 400);
+    }
+    entries.slice(0, 10).forEach((e, i) => {
+      const y = 210 + i * 54;
+      g.fillStyle = i % 2 ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.09)";
+      g.fillRect(90, y - 22, 844, 46);
+      g.textAlign = "left";
+      g.fillStyle = i === 0 ? "#ffd76a" : "#e6edf5";
+      g.font = "700 34px Helvetica, Arial, sans-serif";
+      g.fillText(`${i + 1}.`, 110, y);
+      g.fillText(e.name.slice(0, 14), 180, y);
+      g.textAlign = "right";
+      g.fillStyle = i === 0 ? "#ffd76a" : "#8fe3b6";
+      g.font = "700 36px monospace";
+      g.fillText(fmt(e.total_seconds), 914, y);
+    });
+    boardTex.needsUpdate = true;
   }
+  drawBoard([]);
+
 
   // remote players
   const remotes = new Map<string, { group: THREE.Group; target: THREE.Vector3; yaw: number; label: THREE.Sprite }>();
@@ -847,30 +885,14 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     }
   }
 
-  function updateNpcs(dt: number, t: number) {
-    for (const n of npcs) {
-      const dx = n.target.x - n.group.position.x;
-      const dz = n.target.z - n.group.position.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist < 0.6) {
-        n.target = randomLanePoint();
-        continue;
-      }
-      const vx = (dx / dist) * n.speed;
-      const vz = (dz / dist) * n.speed;
-      n.group.position.x += vx * dt;
-      n.group.position.z += vz * dt;
-      const wanted = Math.atan2(vx, vz);
-      let delta = ((wanted - n.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
-      n.group.rotation.y += delta * Math.min(1, dt * 4);
-      n.group.position.y = Math.abs(Math.sin(t * 6 + n.phase)) * 0.03;
-    }
+  function updateRemotes(dt: number) {
     for (const [, r] of remotes) {
       r.group.position.lerp(r.target, Math.min(1, dt * 6));
       let delta = ((r.yaw + Math.PI - r.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
       r.group.rotation.y += delta * Math.min(1, dt * 6);
     }
   }
+
 
   function resize() {
     const w = canvas.clientWidth || window.innerWidth;
@@ -891,7 +913,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     else camera.position.set(player.pos.x, 1.68, player.pos.z);
     updateCart(dt);
     updatePrompt();
-    updateNpcs(dt, t);
+    updateRemotes(dt);
     kioskLight.intensity = 8 + Math.sin(t * 2) * 2;
     netAcc += dt;
     if (netAcc > 0.1) {
@@ -907,6 +929,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   return {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
+    setLeaderboard: (entries: { name: string; total_seconds: number }[]) => drawBoard(entries),
     returnItem: (id: string) => {
       removeFromCart(id);
       const p = byId(id);
