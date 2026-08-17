@@ -914,7 +914,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     else camera.position.set(player.pos.x, 1.68, player.pos.z);
     updateCart(dt);
     updatePrompt();
-    updateNpcs(dt, t);
+    updateRemotes(dt);
     kioskLight.intensity = 8 + Math.sin(t * 2) * 2;
     netAcc += dt;
     if (netAcc > 0.1) {
