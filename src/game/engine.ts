@@ -202,7 +202,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   scene.fog = new THREE.Fog("#cfd8e0", 40, 120);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.02).texture;
+  scene.environmentIntensity = 1.05;
+
 
   const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 220);
   const player = { pos: new THREE.Vector3(0, 1.68, 18), yaw: 0, pitch: -0.08, vel: new THREE.Vector3() };
