@@ -84,3 +84,25 @@ export function joinStore({ room, name, color, onPlayers, onRoster, onStolen }: 
 }
 
 export type StoreConnection = ReturnType<typeof joinStore>;
+
+/** Live headcount for a room, without joining it as a player. */
+export function watchRoomCount(room: string, onCount: (n: number) => void) {
+  const channel = supabase.channel(`store:${room}`, {
+    config: { presence: { key: `watch-${Math.random().toString(36).slice(2, 8)}` } },
+  });
+  channel
+    .on("presence", { event: "sync" }, () => {
+      const state = channel.presenceState<Presence>();
+      const ids = new Set<string>();
+      Object.values(state).forEach((entries) =>
+        entries.forEach((e) => {
+          if (e?.id) ids.add(e.id);
+        }),
+      );
+      onCount(ids.size);
+    })
+    .subscribe();
+  return () => {
+    void supabase.removeChannel(channel);
+  };
+}

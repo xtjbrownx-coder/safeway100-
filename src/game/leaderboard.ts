@@ -39,3 +39,16 @@ export async function submitRun(entry: Omit<RunEntry, "score"> & { score?: numbe
     score: entry.score ?? computeScore(entry.total_seconds, entry.accuracy),
   });
 }
+
+export type HallEntry = RunEntry & { created_at: string };
+
+/** Everyone who has ever finished all 10 levels — kept forever, newest first. */
+export async function fetchHallOfFame(limit = 50): Promise<HallEntry[]> {
+  const { data, error } = await supabase
+    .from("leaderboard")
+    .select("name, total_seconds, accuracy, score, created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) return [];
+  return (data ?? []) as HallEntry[];
+}
