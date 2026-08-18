@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CATALOG, byId } from "@/game/catalog";
 import type { Game, RemotePlayer } from "@/game/engine";
 import { PLAYER_COLORS, type Presence, type StoreConnection } from "@/game/multiplayer";
-import { fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
+import { computeScore, fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -62,6 +62,8 @@ function Index() {
   const [room, setRoom] = useState<string | null>(null);
   const [board, setBoard] = useState<RunEntry[]>([]);
   const [finalTime, setFinalTime] = useState(0);
+  const [finalScore, setFinalScore] = useState(0);
+  const [finalAccuracy, setFinalAccuracy] = useState(0);
 
   useEffect(() => setList(buildList(listSizeFor(1))), []);
 
@@ -128,6 +130,8 @@ function Index() {
     setScanned([]);
     setSeconds(0);
     setFinalTime(0);
+    setFinalScore(0);
+    setFinalAccuracy(0);
     setList(buildList(listSizeFor(1)));
     setPhase("shopping");
     setRunning(true);
@@ -165,6 +169,8 @@ function Index() {
       setFinalTime(seconds);
       setPhase("finish");
       const avg = Math.round([...accuracies, score].reduce((s, v) => s + v, 0) / TOTAL_LEVELS);
+      setFinalAccuracy(avg);
+      setFinalScore(computeScore(seconds, avg));
       void (async () => {
         await submitRun({ name: name.trim() || "Shopper", total_seconds: seconds, accuracy: avg });
         await refreshBoard();
@@ -188,7 +194,11 @@ function Index() {
   const timeStr = fmt(seconds);
   const done = list.filter((e) => (counts.get(e.id) ?? 0) >= e.qty).length;
   const best = board[0];
-  const rank = board.findIndex((b) => b.total_seconds >= finalTime) + 1;
+  const rank = (board.filter((b) => b.score > finalScore).length || 0) + 1;
+  const liveScore = computeScore(
+    seconds,
+    accuracies.length ? accuracies.reduce((s, v) => s + v, 0) / accuracies.length : 100,
+  );
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950">
@@ -204,6 +214,10 @@ function Index() {
                 Level {level}/{TOTAL_LEVELS}
               </span>
               <span className="font-mono text-[11px] text-amber-300">{timeStr}</span>
+            </div>
+            <div className="mt-0.5 flex items-baseline justify-between">
+              <span className="text-[10px] uppercase tracking-[0.16em] text-slate-400">Projected score</span>
+              <span className="font-mono text-[11px] text-emerald-300">{liveScore} pts</span>
             </div>
             <ul className="mt-1.5 space-y-0.5">
               {list.map((e) => {
@@ -256,15 +270,15 @@ function Index() {
             <p className="text-[11px] uppercase tracking-[0.3em] text-emerald-300">10-level speedrun</p>
             <h2 className="mt-1 text-3xl font-semibold">Cart &amp; Aisle</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
-              Ten shopping levels, one stopwatch. Grab the exact items on each list, scan them at self-checkout, and the
-              clock only stops when level 10 is paid for. Your total time goes on the world leaderboard at the back of
-              the store.
+              Ten shopping levels, one stopwatch. Grab the exact items on each list and scan them at self-checkout. You
+              earn points for accuracy (50 per percent) plus a speed bonus (2 per second saved) — the highest score
+              tops the world leaderboard at the back of the store.
             </p>
 
             <div className="mt-4 rounded-lg border border-white/10 bg-slate-800/50 p-3 text-xs">
-              <span className="text-slate-400">World record</span>{" "}
+              <span className="text-slate-400">Top score</span>{" "}
               <span className="font-mono text-amber-300">
-                {best ? `${fmt(best.total_seconds)} — ${best.name}` : "unclaimed"}
+                {best ? `${best.score} pts — ${best.name} (${fmt(best.total_seconds)})` : "unclaimed"}
               </span>
             </div>
 
@@ -459,30 +473,31 @@ function Index() {
           <div className="w-full max-w-md rounded-2xl border border-amber-300/25 bg-slate-900/90 p-7 text-slate-100 shadow-2xl">
             <p className="text-[11px] uppercase tracking-[0.3em] text-amber-300">Run complete</p>
             <h2 className="mt-1 text-3xl font-semibold">All {TOTAL_LEVELS} levels done</h2>
-            <p className="mt-3 font-mono text-5xl text-emerald-300">{fmt(finalTime)}</p>
+            <p className="mt-3 font-mono text-5xl text-emerald-300">{finalScore} pts</p>
             <p className="mt-1 text-xs text-slate-400">
-              Average accuracy {Math.round(accuracies.reduce((s, v) => s + v, 0) / Math.max(accuracies.length, 1))}%
+              {fmt(finalTime)} · average accuracy {finalAccuracy}% · speed bonus{" "}
+              {Math.max(0, 1800 - finalTime) * 2}
             </p>
 
             <p className="mt-2 text-sm text-slate-300">
-              {best && finalTime <= best.total_seconds
-                ? "New world record — you're the fastest shopper alive."
+              {best && finalScore >= best.score
+                ? "New world record — highest score in the store."
                 : best
-                  ? `${fmt(Math.max(0, finalTime - best.total_seconds))} behind ${best.name}'s record of ${fmt(best.total_seconds)}.`
-                  : "Your time is the first on the board."}
-              {rank > 0 && ` You rank #${rank} worldwide.`}
+                  ? `${best.score - finalScore} pts behind ${best.name}'s ${best.score}.`
+                  : "Your score is the first on the board."}
+              {` You rank #${rank} worldwide.`}
             </p>
 
             <div className="mt-5 rounded-xl border border-white/10 bg-slate-800/50 p-3">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">World leaderboard</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">World leaderboard · top scores</p>
               <ol className="mt-2 space-y-1 text-sm">
                 {board.length === 0 && <li className="text-slate-400">No runs yet.</li>}
                 {board.map((b, i) => (
                   <li key={`${b.name}-${i}`} className="flex justify-between">
                     <span className={i === 0 ? "text-amber-300" : "text-slate-200"}>
-                      {i + 1}. {b.name}
+                      {i + 1}. {b.name} <span className="text-[10px] text-slate-500">{fmt(b.total_seconds)}</span>
                     </span>
-                    <span className="font-mono text-emerald-300">{fmt(b.total_seconds)}</span>
+                    <span className="font-mono text-emerald-300">{b.score} pts</span>
                   </li>
                 ))}
               </ol>

@@ -101,7 +101,7 @@ function shapeGeo(shape: ProductDef["shape"]) {
       geo = new THREE.BoxGeometry(0.26, 0.09, 0.19);
       break;
     case "produce":
-      geo = new THREE.IcosahedronGeometry(0.11, 2);
+      geo = new THREE.IcosahedronGeometry(0.11, 1);
       break;
     default:
       geo = new THREE.BoxGeometry(0.24, 0.28, 0.13);
@@ -124,9 +124,11 @@ function productMaterial(p: ProductDef, tex: THREE.Texture) {
 // ---------------------------------------------------------------- game
 export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -227,7 +229,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const key = new THREE.DirectionalLight("#fff6ea", 0.75);
   key.position.set(14, 20, 16);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.mapSize.set(1024, 1024);
   key.shadow.camera.left = -32;
   key.shadow.camera.right = 32;
   key.shadow.camera.top = 28;
@@ -248,17 +250,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       strip.position.set(x + off, H - 0.75, (RUN_Z0 + RUN_Z1) / 2);
       scene.add(strip);
     }
-    if (i % 2 === 0) {
-      const pl = new THREE.PointLight("#fff4e2", 12, 26, 2);
+    if (i === 2) {
+      const pl = new THREE.PointLight("#fff4e2", 16, 34, 2);
       pl.position.set(x, H - 1.6, (RUN_Z0 + RUN_Z1) / 2);
       scene.add(pl);
     }
   });
-  for (const z of [10, 16]) {
+  for (const z of [13]) {
     const strip = new THREE.Mesh(new THREE.BoxGeometry(W - 8, 0.1, 0.5), stripMat);
     strip.position.set(0, H - 0.75, z);
     scene.add(strip);
-    const pl = new THREE.PointLight("#fff4e2", 10, 30, 2);
+    const pl = new THREE.PointLight("#fff4e2", 12, 32, 2);
     pl.position.set(0, H - 1.6, z);
     scene.add(pl);
   }
@@ -395,10 +397,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const aisle = s < 0 ? aisleA : aisleB;
       const items = CATALOG.filter((p) => p.aisle === aisle);
       if (!items.length) continue;
-      const perItem = Math.max(2, Math.floor(RUN_LEN / 0.62 / items.length));
+      const STEP = 0.9;
+      const perItem = Math.max(2, Math.floor(RUN_LEN / STEP / items.length));
       SHELF_Y.forEach((y, level) => {
         let n = 0;
-        for (let z = -RUN_LEN / 2 + 0.45; z <= RUN_LEN / 2 - 0.45; z += 0.62) {
+        for (let z = -RUN_LEN / 2 + 0.45; z <= RUN_LEN / 2 - 0.45; z += STEP) {
           const p = items[Math.floor((n / perItem + level) % items.length)]!;
           const m = meshFor(p);
           const yOff =
@@ -406,6 +409,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
           m.position.set(cx + s * (RUN_HALF_D - 0.18), y + yOff, (RUN_Z0 + RUN_Z1) / 2 + z + (Math.random() - 0.5) * 0.04);
           m.rotation.y = s < 0 ? -Math.PI / 2 : Math.PI / 2;
           m.userData['productId'] = p.id;
+          m.updateMatrix();
+          m.matrixAutoUpdate = false;
           scene.add(m);
           products.push(m);
           n++;
@@ -685,7 +690,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   boardLight.position.set(0, 4.6, -D / 2 + 2);
   scene.add(boardLight);
 
-  function drawBoard(entries: { name: string; total_seconds: number }[]) {
+  function drawBoard(entries: { name: string; total_seconds: number; score: number }[]) {
     const [, g] = boardCanvas;
     g.fillStyle = "#0d1420";
     g.fillRect(0, 0, 1024, 768);
@@ -698,7 +703,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     g.fillText("WORLD LEADERBOARD", 512, 56);
     g.font = "600 30px Helvetica, Arial, sans-serif";
     g.fillStyle = "#8fe3b6";
-    g.fillText("FASTEST 10-LEVEL SHOPPING RUNS", 512, 148);
+    g.fillText("HIGHEST SCORING 10-LEVEL RUNS", 512, 148);
     const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
     if (!entries.length) {
       g.fillStyle = "#7f8b9b";
@@ -713,11 +718,14 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       g.fillStyle = i === 0 ? "#ffd76a" : "#e6edf5";
       g.font = "700 34px Helvetica, Arial, sans-serif";
       g.fillText(`${i + 1}.`, 110, y);
-      g.fillText(e.name.slice(0, 14), 180, y);
+      g.fillText(e.name.slice(0, 12), 180, y);
       g.textAlign = "right";
+      g.fillStyle = "#7f8b9b";
+      g.font = "600 26px monospace";
+      g.fillText(fmt(e.total_seconds), 700, y);
       g.fillStyle = i === 0 ? "#ffd76a" : "#8fe3b6";
       g.font = "700 36px monospace";
-      g.fillText(fmt(e.total_seconds), 914, y);
+      g.fillText(`${e.score} pts`, 914, y);
     });
     boardTex.needsUpdate = true;
   }
@@ -893,6 +901,118 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     }
   }
 
+  // ---------- cart-to-cart collisions: sparks + dink ----------
+  let audioCtx: AudioContext | null = null;
+  function dink() {
+    try {
+      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctor) return;
+      audioCtx ??= new Ctor();
+      const ctx = audioCtx;
+      if (ctx.state === "suspended") void ctx.resume();
+      const t0 = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(0.22, t0 + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.26);
+      gain.connect(ctx.destination);
+      for (const [f, d] of [[1650, 1], [2480, 0.5]] as const) {
+        const osc = ctx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(f, t0);
+        osc.frequency.exponentialRampToValueAtTime(f * 0.82, t0 + 0.22);
+        const g2 = ctx.createGain();
+        g2.gain.value = d;
+        osc.connect(g2).connect(gain);
+        osc.start(t0);
+        osc.stop(t0 + 0.28);
+      }
+    } catch {
+      /* audio unavailable */
+    }
+  }
+
+  const SPARKS = 48;
+  const sparkPos = new Float32Array(SPARKS * 3);
+  const sparkVel = new Float32Array(SPARKS * 3);
+  let sparkLife = 0;
+  const sparkGeo = new THREE.BufferGeometry();
+  sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
+  const sparkPoints = new THREE.Points(
+    sparkGeo,
+    new THREE.PointsMaterial({ color: "#ffd27a", size: 0.055, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }),
+  );
+  sparkPoints.frustumCulled = false;
+  sparkPoints.visible = false;
+  scene.add(sparkPoints);
+  const sparkLight = new THREE.PointLight("#ffbe55", 0, 5, 2);
+  scene.add(sparkLight);
+
+  function burstSparks(at: THREE.Vector3) {
+    for (let i = 0; i < SPARKS; i++) {
+      sparkPos[i * 3] = at.x;
+      sparkPos[i * 3 + 1] = at.y;
+      sparkPos[i * 3 + 2] = at.z;
+      const a = Math.random() * Math.PI * 2;
+      const sp = 1.2 + Math.random() * 2.6;
+      sparkVel[i * 3] = Math.cos(a) * sp;
+      sparkVel[i * 3 + 1] = 1.0 + Math.random() * 2.4;
+      sparkVel[i * 3 + 2] = Math.sin(a) * sp;
+    }
+    sparkLife = 0.5;
+    sparkPoints.visible = true;
+    sparkLight.position.copy(at);
+  }
+
+  function updateSparks(dt: number) {
+    if (sparkLife <= 0) return;
+    sparkLife -= dt;
+    if (sparkLife <= 0) {
+      sparkPoints.visible = false;
+      sparkLight.intensity = 0;
+      return;
+    }
+    for (let i = 0; i < SPARKS; i++) {
+      sparkVel[i * 3 + 1]! -= 9 * dt;
+      sparkPos[i * 3]! += sparkVel[i * 3]! * dt;
+      sparkPos[i * 3 + 1]! += sparkVel[i * 3 + 1]! * dt;
+      sparkPos[i * 3 + 2]! += sparkVel[i * 3 + 2]! * dt;
+    }
+    sparkGeo.attributes['position']!.needsUpdate = true;
+    (sparkPoints.material as THREE.PointsMaterial).opacity = Math.max(0, sparkLife / 0.5);
+    sparkLight.intensity = sparkLife * 12;
+  }
+
+  const CART_R = 0.55;
+  let hitCooldown = 0;
+  const remoteCart = new THREE.Vector3();
+  const myCart = new THREE.Vector3();
+  function updateCartCollisions(dt: number) {
+    hitCooldown = Math.max(0, hitCooldown - dt);
+    myCart.copy(cartAnchor.position);
+    for (const [, r] of remotes) {
+      const ry = r.group.rotation.y;
+      remoteCart.set(r.group.position.x + Math.sin(ry) * 0.75, 0, r.group.position.z + Math.cos(ry) * 0.75);
+      const dx = myCart.x - remoteCart.x;
+      const dz = myCart.z - remoteCart.z;
+      const d = Math.hypot(dx, dz);
+      const minD = CART_R * 2;
+      if (d > minD || d < 1e-4) continue;
+      // push the player (and their cart) out of the other cart
+      const push = (minD - d) + 0.02;
+      player.pos.x += (dx / d) * push;
+      player.pos.z += (dz / d) * push;
+      player.vel.multiplyScalar(0.2);
+      cartAnchor.position.set(myCart.x + (dx / d) * push, 0, myCart.z + (dz / d) * push);
+      camera.position.set(player.pos.x, camera.position.y, player.pos.z);
+      if (hitCooldown === 0) {
+        hitCooldown = 0.35;
+        burstSparks(new THREE.Vector3((myCart.x + remoteCart.x) / 2, 0.72, (myCart.z + remoteCart.z) / 2));
+        dink();
+      }
+      break;
+    }
+  }
 
   function resize() {
     const w = canvas.clientWidth || window.innerWidth;
@@ -905,15 +1025,19 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   resize();
 
   let netAcc = 0;
+  let frame = 0;
   function tick() {
     raf = requestAnimationFrame(tick);
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
+    frame++;
     if (locked) move(dt);
     else camera.position.set(player.pos.x, 1.68, player.pos.z);
     updateCart(dt);
-    updatePrompt();
+    updateCartCollisions(dt);
+    if (frame % 2 === 0) updatePrompt();
     updateRemotes(dt);
+    updateSparks(dt);
     kioskLight.intensity = 8 + Math.sin(t * 2) * 2;
     netAcc += dt;
     if (netAcc > 0.1) {
@@ -929,7 +1053,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   return {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
-    setLeaderboard: (entries: { name: string; total_seconds: number }[]) => drawBoard(entries),
+    setLeaderboard: (entries: { name: string; total_seconds: number; score: number }[]) => drawBoard(entries),
     returnItem: (id: string) => {
       removeFromCart(id);
       const p = byId(id);

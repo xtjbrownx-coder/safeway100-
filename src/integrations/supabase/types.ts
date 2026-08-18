@@ -20,6 +20,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          score: number
           total_seconds: number
         }
         Insert: {
@@ -27,6 +28,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          score?: number
           total_seconds: number
         }
         Update: {
@@ -34,6 +36,7 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          score?: number
           total_seconds?: number
         }
         Relationships: []
