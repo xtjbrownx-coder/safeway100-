@@ -850,7 +850,18 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   let cartAttached = true;
   const cartVel = new THREE.Vector3();
   let carried: { id: string; mesh: THREE.Mesh } | null = null;
-  const projectiles: { mesh: THREE.Mesh; id: string; vel: THREE.Vector3 }[] = [];
+  type Projectile = {
+    mesh: THREE.Mesh;
+    id: string;
+    vel: THREE.Vector3;
+    spin: THREE.Vector3;
+    radius: number;
+    rest: number;
+    settled: number;
+    life: number;
+  };
+  const projectiles: Projectile[] = [];
+
   const RIM_Y = 0.95;
 
   function layoutCart() {
