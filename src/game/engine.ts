@@ -952,7 +952,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
 
   // remote players
-  const remotes = new Map<string, { group: THREE.Group; target: THREE.Vector3; yaw: number; label: THREE.Sprite }>();
+  type RemoteEntry = {
+    group: THREE.Group;
+    target: THREE.Vector3;
+    yaw: number;
+    label: THREE.Sprite;
+    name: string;
+    cart: string[];
+    cartMeshes: THREE.Mesh[];
+  };
+  const remotes = new Map<string, RemoteEntry>();
+
   function nameSprite(name: string, color: string) {
     const [c, g] = makeCanvas(256, 64);
     g.fillStyle = "rgba(12,16,22,0.72)";
