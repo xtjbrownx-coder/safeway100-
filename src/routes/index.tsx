@@ -64,6 +64,8 @@ function Index() {
   const [finalTime, setFinalTime] = useState(0);
   const [finalScore, setFinalScore] = useState(0);
   const [finalAccuracy, setFinalAccuracy] = useState(0);
+  const [cartHeld, setCartHeld] = useState(true);
+  const [carrying, setCarrying] = useState<string | null>(null);
 
   useEffect(() => setList(buildList(listSizeFor(1))), []);
 
@@ -85,6 +87,11 @@ function Index() {
         onCheckout: () => setPhase("checkout"),
         onLockChange: setLocked,
         onMove: (x, z, yaw) => netRef.current?.send(x, z, yaw),
+        onSteal: (victimId, productId) => netRef.current?.steal(victimId, productId),
+        onCartModeChange: (attached, held) => {
+          setCartHeld(attached);
+          setCarrying(held);
+        },
       });
       gameRef.current = game;
       void refreshBoard();
@@ -103,7 +110,8 @@ function Index() {
 
   useEffect(() => {
     netRef.current?.setItems(cart.length);
-  }, [cart.length]);
+    netRef.current?.setCart(cart);
+  }, [cart]);
 
   useEffect(() => () => netRef.current?.leave(), []);
 
@@ -116,6 +124,14 @@ function Index() {
       color: PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)]!,
       onPlayers: (players: RemotePlayer[]) => gameRef.current?.setRemotePlayers(players),
       onRoster: setRoster,
+      onStolen: (productId: string) => {
+        gameRef.current?.removeItem(productId);
+        setCart((c) => {
+          const i = c.indexOf(productId);
+          if (i < 0) return c;
+          return c.filter((_, j) => j !== i);
+        });
+      },
     });
   }, []);
 
@@ -190,6 +206,39 @@ function Index() {
     setPhase("shopping");
     gameRef.current?.lock();
   }, [level]);
+
+  const replayLevel = useCallback(() => {
+    setCart([]);
+    setScanned([]);
+    gameRef.current?.clearCart();
+    setPhase("shopping");
+    gameRef.current?.lock();
+  }, []);
+
+  const restartRun = useCallback(() => {
+    setLevel(1);
+    setAccuracies([]);
+    setCart([]);
+    setScanned([]);
+    setSeconds(0);
+    setRunning(true);
+    setList(buildList(listSizeFor(1)));
+    gameRef.current?.clearCart();
+    setPhase("shopping");
+    gameRef.current?.lock();
+  }, []);
+
+  const backToLobby = useCallback(() => {
+    setRunning(false);
+    setSeconds(0);
+    setLevel(1);
+    setAccuracies([]);
+    setCart([]);
+    setScanned([]);
+    gameRef.current?.clearCart();
+    setList(buildList(listSizeFor(1)));
+    setPhase("lobby");
+  }, []);
 
   const timeStr = fmt(seconds);
   const done = list.filter((e) => (counts.get(e.id) ?? 0) >= e.qty).length;
