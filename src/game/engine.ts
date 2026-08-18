@@ -101,7 +101,7 @@ function shapeGeo(shape: ProductDef["shape"]) {
       geo = new THREE.BoxGeometry(0.26, 0.09, 0.19);
       break;
     case "produce":
-      geo = new THREE.IcosahedronGeometry(0.11, 2);
+      geo = new THREE.IcosahedronGeometry(0.11, 1);
       break;
     default:
       geo = new THREE.BoxGeometry(0.24, 0.28, 0.13);
