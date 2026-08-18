@@ -700,7 +700,22 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   }
 
   // ---------- refrigerated cases (openable glass doors) ----------
-  type FridgeDoor = { pivot: THREE.Group; panel: THREE.Mesh; open: boolean; angle: number; stock: THREE.Mesh[] };
+  type FridgeDoor = {
+    pivot: THREE.Group;
+    panel: THREE.Mesh;
+    open: boolean;
+    angle: number;
+    vel: number;
+    latch: number;
+    facing: 1 | -1;
+    handle: THREE.Mesh;
+    handleX: number;
+    kind: "dairy" | "meat";
+    amb: Ambience | null;
+    closedSfx: boolean;
+    stock: THREE.Mesh[];
+  };
+
   const fridgeDoors: FridgeDoor[] = [];
   const doorPanels: THREE.Mesh[] = [];
 
