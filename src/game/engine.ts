@@ -1053,7 +1053,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   return {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
-    setLeaderboard: (entries: { name: string; total_seconds: number }[]) => drawBoard(entries),
+    setLeaderboard: (entries: { name: string; total_seconds: number; score: number }[]) => drawBoard(entries),
     returnItem: (id: string) => {
       removeFromCart(id);
       const p = byId(id);
