@@ -1442,6 +1442,57 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     }
   }
 
+  // ---------- rigid-ish tumble helpers ----------
+  const spinQ = new THREE.Quaternion();
+  const spinAxis = new THREE.Vector3();
+  const cornerV = new THREE.Vector3();
+  const restAxes = [
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(0, 0, -1),
+  ];
+
+  /** World-space Y of the object's lowest oriented corner (floor is y = 0). */
+  function lowestPoint(m: THREE.Mesh) {
+    const g = m.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const bb = g.boundingBox!;
+    let min = Infinity;
+    for (let xi = 0; xi < 2; xi++)
+      for (let yi = 0; yi < 2; yi++)
+        for (let zi = 0; zi < 2; zi++) {
+          cornerV
+            .set(xi ? bb.max.x : bb.min.x, yi ? bb.max.y : bb.min.y, zi ? bb.max.z : bb.min.z)
+            .applyQuaternion(m.quaternion);
+          const y = m.position.y + cornerV.y;
+          if (y < min) min = y;
+        }
+    return min;
+  }
+
+  /** Rotate to the nearest face-down resting pose so items lie flat, never balanced. */
+  function snapToRest(m: THREE.Mesh) {
+    // find which local axis currently points most downward; that face becomes the bed
+    let bestAxis = restAxes[0]!;
+    let bestDot = -Infinity;
+    for (const a of restAxes) {
+      const d = cornerV.copy(a).applyQuaternion(m.quaternion).y;
+      if (-d > bestDot) {
+        bestDot = -d;
+        bestAxis = a;
+      }
+    }
+    const from = cornerV.copy(bestAxis).applyQuaternion(m.quaternion).normalize();
+    const align = new THREE.Quaternion().setFromUnitVectors(from, new THREE.Vector3(0, -1, 0));
+    m.quaternion.premultiply(align).normalize();
+    // keep a natural random heading around the vertical
+    m.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI * 2);
+  }
+
+
   function updateCarried(dt: number) {
     shelfHitCooldown = Math.max(0, shelfHitCooldown - dt);
     if (carried) {
