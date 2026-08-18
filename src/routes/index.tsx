@@ -78,6 +78,8 @@ function Index() {
   const [finalAccuracy, setFinalAccuracy] = useState(0);
   const [cartHeld, setCartHeld] = useState(true);
   const [carrying, setCarrying] = useState<string | null>(null);
+  const listRef = useRef<ListEntry[]>([]);
+
   const [publicCount, setPublicCount] = useState(0);
   const [privateCount, setPrivateCount] = useState(0);
   const [hall, setHall] = useState<HallEntry[]>([]);
