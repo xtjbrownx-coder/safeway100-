@@ -31,16 +31,22 @@ function makeCanvas(w: number, h: number) {
   return [c, c.getContext("2d")!] as const;
 }
 
+let MAX_ANISO = 8;
+
 function toTex(c: HTMLCanvasElement, repeat?: [number, number]) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = MAX_ANISO;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
   if (repeat) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(repeat[0], repeat[1]);
   }
   return t;
 }
+
 
 function labelTexture(p: ProductDef) {
   const [c, g] = makeCanvas(256, 256);
