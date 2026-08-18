@@ -134,3 +134,28 @@ export const CATALOG: ProductDef[] = [
 
 const INDEX = new Map(CATALOG.map((p) => [p.id, p] as const));
 export const byId = (id: string) => INDEX.get(id)!;
+
+/** How many of an item a real shopper would grab — matches real-world pack sizes. */
+export function realisticQty(p: ProductDef): number {
+  const pick = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
+  const single = new Set(["cake", "eggs", "toiletpaper", "turkey", "vitamins", "candles", "shampoo", "conditioner", "bodywash", "lotion"]);
+  if (single.has(p.id)) return 1;
+  switch (p.shape) {
+    case "produce":
+      return pick(2, 6);
+    case "can":
+      return pick(2, 4);
+    case "tub":
+    case "jar":
+      return pick(1, 2);
+    case "carton":
+    case "bottle":
+      return pick(1, 2);
+    case "tray":
+      return pick(1, 2);
+    case "bag":
+      return pick(1, 2);
+    default:
+      return pick(1, 2);
+  }
+}

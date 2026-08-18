@@ -416,7 +416,60 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   const SHELF_Y = [0.5, 1.0, 1.5, 1.98];
 
+  // ---------- aisle-end "on your list" boards ----------
+  type EndcapBoard = {
+    aisles: [string, string];
+    ctx: CanvasRenderingContext2D;
+    tex: THREE.CanvasTexture;
+    number: number;
+  };
+  const endcaps: EndcapBoard[] = [];
+  let listEntries: { id: string; name: string; qty: number; aisle: string }[] = [];
+
+  function drawEndcap(b: EndcapBoard) {
+    const g = b.ctx;
+    g.fillStyle = "#101823";
+    g.fillRect(0, 0, 512, 640);
+    g.fillStyle = "#0f5c46";
+    g.fillRect(0, 0, 512, 108);
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillStyle = "#ffffff";
+    g.font = "800 44px Helvetica, Arial, sans-serif";
+    g.fillText(`AISLE ${b.number} & ${b.number + 1}`, 256, 42);
+    g.font = "700 26px Helvetica, Arial, sans-serif";
+    g.fillStyle = "#bff0d8";
+    g.fillText("ON YOUR LIST", 256, 82);
+
+    const mine = listEntries.filter((e) => e.aisle === b.aisles[0] || e.aisle === b.aisles[1]);
+    if (!mine.length) {
+      g.fillStyle = "#6b7889";
+      g.font = "500 26px Helvetica, Arial, sans-serif";
+      g.fillText("nothing here this level", 256, 330);
+    }
+    mine.slice(0, 9).forEach((e, i) => {
+      const y = 150 + i * 52;
+      g.fillStyle = i % 2 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.1)";
+      g.fillRect(26, y - 21, 460, 44);
+      g.textAlign = "left";
+      g.fillStyle = "#e8eef6";
+      g.font = "600 26px Helvetica, Arial, sans-serif";
+      g.fillText(e.name.slice(0, 20), 42, y);
+      g.textAlign = "right";
+      g.fillStyle = "#8fe3b6";
+      g.font = "700 28px monospace";
+      g.fillText(`x${e.qty}`, 470, y);
+      g.textAlign = "center";
+    });
+
+    g.fillStyle = "#7f8b9b";
+    g.font = "600 20px Helvetica, Arial, sans-serif";
+    g.fillText("NEXT UPDATE AUG 20 · 5PM WESTERN", 256, 612);
+    b.tex.needsUpdate = true;
+  }
+
   RUN_X.forEach((cx, runIndex) => {
+
     const group = new THREE.Group();
     group.position.set(cx, 0, (RUN_Z0 + RUN_Z1) / 2);
     scene.add(group);
@@ -488,6 +541,36 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       rod.position.set(0, 4.3, z);
       group.add(rod);
     }
+
+    // list board on both ends of the run, readable from the aisle end
+    {
+      const [ecCanvas, ecCtx] = makeCanvas(512, 640);
+      const ecTex = toTex(ecCanvas);
+      const board: EndcapBoard = {
+        aisles: [aisleA, aisleB],
+        ctx: ecCtx,
+        tex: ecTex,
+        number: runIndex * 2 + 1,
+      };
+      endcaps.push(board);
+      const ecMat = new THREE.MeshStandardMaterial({
+        map: ecTex,
+        emissiveMap: ecTex,
+        emissive: new THREE.Color("#ffffff"),
+        emissiveIntensity: 0.22,
+        roughness: 0.5,
+        metalness: 0.05,
+      });
+      for (const z of [RUN_LEN / 2 + 0.1, -RUN_LEN / 2 - 0.1]) {
+        const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 1.44), ecMat);
+        panel.position.set(0, 1.55, z);
+        panel.rotation.y = z > 0 ? 0 : Math.PI;
+        group.add(panel);
+      }
+      drawEndcap(board);
+    }
+
+
 
     // ---- stock both faces ----
     for (const s of [-1, 1]) {
@@ -1074,7 +1157,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       g.font = "700 36px monospace";
       g.fillText(`${e.score} pts`, 914, y);
     });
+    g.textAlign = "center";
+    g.fillStyle = "#c8202c";
+    g.fillRect(0, 690, 1024, 78);
+    g.fillStyle = "#ffffff";
+    g.font = "700 30px Helvetica, Arial, sans-serif";
+    g.fillText("NEXT UPDATE: AUGUST 20 · 5PM WESTERN", 512, 716);
+    g.fillStyle = "#ffd76a";
+    g.font = "600 22px Helvetica, Arial, sans-serif";
+    g.fillText("EVERY FINISHER IS RECORDED IN THE HALL OF FAME FOREVER", 512, 748);
     boardTex.needsUpdate = true;
+
   }
   drawBoard([]);
 
@@ -1857,17 +1950,22 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   function adaptResolution(dt: number) {
     perfAcc += dt;
     perfFrames++;
-    if (perfAcc < 1.25) return;
+    if (perfAcc < 0.6) return;
     const fps = perfFrames / perfAcc;
     perfAcc = 0;
     perfFrames = 0;
     // never go below native-ish sharpness; antialiasing keeps edges clean
-    const min = Math.max(1, Math.min(devicePixelRatio, 1));
-    const max = Math.min(Math.max(devicePixelRatio, 2), 2.5);
+    const min = Math.max(0.9, Math.min(devicePixelRatio, 1));
+    // cap total rendered pixels (~3.2M) so big windows stay smooth
+    const area = Math.max(1, canvas.clientWidth * canvas.clientHeight);
+    const budget = Math.sqrt(3_200_000 / area);
+    const max = Math.max(min, Math.min(Math.max(devicePixelRatio, 2), 2.5, budget));
 
     let next = renderScale;
-    if (fps < 45) next = Math.max(min, renderScale - 0.25);
-    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.25);
+    if (fps < 50) next = Math.max(min, renderScale - 0.25);
+    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.15);
+    next = Math.min(next, max);
+
     if (Math.abs(next - renderScale) > 0.01) {
       renderScale = next;
       renderer.setPixelRatio(renderScale);
@@ -1910,6 +2008,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
     setLeaderboard: (entries: { name: string; total_seconds: number; score: number }[]) => drawBoard(entries),
+    setShoppingList: (entries: { id: string; name: string; qty: number; aisle: string }[]) => {
+      listEntries = entries;
+      endcaps.forEach(drawEndcap);
+    },
+
     returnItem: (id: string) => {
       removeFromCart(id);
       const p = byId(id);

@@ -1,9 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CATALOG, byId } from "@/game/catalog";
+import { CATALOG, byId, realisticQty } from "@/game/catalog";
 import type { Game, RemotePlayer } from "@/game/engine";
 import { PLAYER_COLORS, type Presence, type StoreConnection } from "@/game/multiplayer";
-import { levelPoints, runScore, fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
+import {
+  levelPoints,
+  runScore,
+  fetchTopRuns,
+  fetchHallOfFame,
+  submitRun,
+  type RunEntry,
+  type HallEntry,
+} from "@/game/leaderboard";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -34,11 +43,14 @@ const listSizeFor = (level: number) => 3 + Math.floor((level - 1) * 0.7);
 
 function buildList(count: number): ListEntry[] {
   const pool = [...CATALOG].sort(() => Math.random() - 0.5).slice(0, count);
-  return pool.map((p) => ({ id: p.id, qty: Math.random() < 0.3 ? 2 : 1 }));
+  return pool.map((p) => ({ id: p.id, qty: realisticQty(p) }));
 }
+
+const NEXT_UPDATE = "Next update: August 20th · 5PM Western";
 
 const randomCode = () => Math.random().toString(36).slice(2, 7).toUpperCase();
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
 
 function Index() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -66,14 +78,64 @@ function Index() {
   const [finalAccuracy, setFinalAccuracy] = useState(0);
   const [cartHeld, setCartHeld] = useState(true);
   const [carrying, setCarrying] = useState<string | null>(null);
+  const listRef = useRef<ListEntry[]>([]);
+
+  const [publicCount, setPublicCount] = useState(0);
+  const [privateCount, setPrivateCount] = useState(0);
+  const [hall, setHall] = useState<HallEntry[]>([]);
 
   useEffect(() => setList(buildList(listSizeFor(1))), []);
 
+  // push the level list to the aisle-end boards in the store
+  useEffect(() => {
+    listRef.current = list;
+    gameRef.current?.setShoppingList(
+      list.map((e) => ({ id: e.id, name: byId(e.id).name, qty: e.qty, aisle: byId(e.id).aisle })),
+    );
+  }, [list]);
+
+
+  // live headcount for the public lobby (and the private room being joined)
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let alive = true;
+    void (async () => {
+      const { watchRoomCount } = await import("@/game/multiplayer");
+      if (!alive) return;
+      stop = watchRoomCount("public-lobby", setPublicCount);
+    })();
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const roomCode = code.trim().toUpperCase();
+    if (mode !== "private" || roomCode.length < 4) {
+      setPrivateCount(0);
+      return;
+    }
+    let stop: (() => void) | undefined;
+    let alive = true;
+    void (async () => {
+      const { watchRoomCount } = await import("@/game/multiplayer");
+      if (!alive) return;
+      stop = watchRoomCount(roomCode, setPrivateCount);
+    })();
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, [mode, code]);
+
   const refreshBoard = useCallback(async () => {
-    const rows = await fetchTopRuns(10);
+    const [rows, hof] = await Promise.all([fetchTopRuns(10), fetchHallOfFame(50)]);
     setBoard(rows);
+    setHall(hof);
     gameRef.current?.setLeaderboard(rows);
   }, []);
+
 
   useEffect(() => {
     let alive = true;
@@ -94,7 +156,11 @@ function Index() {
         },
       });
       gameRef.current = game;
+      game.setShoppingList(
+        listRef.current.map((e) => ({ id: e.id, name: byId(e.id).name, qty: e.qty, aisle: byId(e.id).aisle })),
+      );
       void refreshBoard();
+
     })();
     return () => {
       alive = false;
@@ -397,6 +463,18 @@ function Index() {
               </button>
             </div>
 
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+              <p className="flex items-center gap-1.5 text-slate-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="font-mono text-emerald-300">{publicCount}</span> live in public server
+              </p>
+              <p className="flex items-center gap-1.5 text-slate-400">
+                <span className={`h-1.5 w-1.5 rounded-full ${privateCount ? "bg-emerald-400" : "bg-slate-600"}`} />
+                <span className="font-mono text-emerald-300">{privateCount}</span> live in this room
+              </p>
+            </div>
+
+
             {mode === "private" && (
               <div className="mt-3 flex gap-2">
                 <input
@@ -424,6 +502,27 @@ function Index() {
             <p className="mt-2 text-center text-[11px] text-slate-500">
               WASD move · mouse look · E interact · F let go of cart · click/Q throw items
             </p>
+
+            <div className="mt-4 rounded-lg border border-amber-300/25 bg-amber-300/5 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+              {NEXT_UPDATE}
+            </div>
+
+            <div className="mt-3 rounded-lg border border-white/10 bg-slate-800/40 p-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Hall of fame · kept forever</p>
+              <ul className="mt-1.5 max-h-28 space-y-0.5 overflow-y-auto pr-1 text-[11px]">
+                {hall.length === 0 && <li className="text-slate-500">Nobody has beaten all 10 levels yet.</li>}
+                {hall.map((h, i) => (
+                  <li key={`${h.name}-${h.created_at}-${i}`} className="flex justify-between gap-2">
+                    <span className="text-slate-200">{h.name}</span>
+                    <span className="font-mono text-slate-400">
+                      {h.score} pts · {fmt(h.total_seconds)} ·{" "}
+                      {new Date(h.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
           </div>
         </div>
       )}
@@ -606,6 +705,29 @@ function Index() {
                 ))}
               </ol>
             </div>
+
+            <div className="mt-3 rounded-xl border border-amber-300/25 bg-amber-300/5 p-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-amber-200">
+                Hall of fame · {name.trim() || "Shopper"} beat the game — recorded forever
+              </p>
+              <ul className="mt-1.5 max-h-24 space-y-0.5 overflow-y-auto pr-1 text-[11px]">
+                {hall.map((h, i) => (
+                  <li key={`${h.name}-${h.created_at}-${i}`} className="flex justify-between gap-2">
+                    <span className="text-slate-200">{h.name}</span>
+                    <span className="font-mono text-slate-400">
+                      {h.score} pts · {fmt(h.total_seconds)} ·{" "}
+                      {new Date(h.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+              {NEXT_UPDATE}
+            </p>
+
+
 
             <button
               onClick={startRun}
