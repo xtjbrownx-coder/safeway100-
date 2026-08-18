@@ -77,6 +77,8 @@ function Index() {
   const [finalScore, setFinalScore] = useState(0);
   const [finalAccuracy, setFinalAccuracy] = useState(0);
   const [quality, setQuality] = useState<"smooth" | "ultra">("ultra");
+  const [perf, setPerf] = useState<{ fps: number; scale: number; quality: "smooth" | "ultra" } | null>(null);
+
   const [cartHeld, setCartHeld] = useState(true);
   const [carrying, setCarrying] = useState<string | null>(null);
   const listRef = useRef<ListEntry[]>([]);
@@ -163,6 +165,8 @@ function Index() {
           setCartHeld(attached);
           setCarrying(held);
         },
+        onPerf: setPerf,
+
       });
       gameRef.current = game;
       game.setShoppingList(
@@ -341,6 +345,23 @@ function Index() {
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950">
       <h1 className="sr-only">Cart &amp; Aisle — 10-level 3D grocery store speedrun</h1>
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+
+      {perf && (
+        <div className="pointer-events-none absolute right-4 top-4 z-20 rounded-md border border-white/10 bg-slate-950/70 px-2.5 py-1.5 font-mono text-[11px] leading-tight text-slate-200 shadow-lg backdrop-blur-md">
+          <span
+            className={
+              perf.fps >= 55 ? "text-emerald-300" : perf.fps >= 35 ? "text-amber-300" : "text-rose-400"
+            }
+          >
+            {perf.fps} FPS
+          </span>
+          <span className="ml-2 text-slate-400">
+            {perf.quality === "ultra" ? "Ultra" : "Smooth"} · {perf.scale.toFixed(2)}x
+          </span>
+        </div>
+      )}
+
+
 
       {/* Compact HUD */}
       {phase === "shopping" && (
