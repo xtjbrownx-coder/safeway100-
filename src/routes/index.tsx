@@ -268,15 +268,15 @@ function Index() {
             <p className="text-[11px] uppercase tracking-[0.3em] text-emerald-300">10-level speedrun</p>
             <h2 className="mt-1 text-3xl font-semibold">Cart &amp; Aisle</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
-              Ten shopping levels, one stopwatch. Grab the exact items on each list, scan them at self-checkout, and the
-              clock only stops when level 10 is paid for. Your total time goes on the world leaderboard at the back of
-              the store.
+              Ten shopping levels, one stopwatch. Grab the exact items on each list and scan them at self-checkout. You
+              earn points for accuracy (50 per percent) plus a speed bonus (2 per second saved) — the highest score
+              tops the world leaderboard at the back of the store.
             </p>
 
             <div className="mt-4 rounded-lg border border-white/10 bg-slate-800/50 p-3 text-xs">
-              <span className="text-slate-400">World record</span>{" "}
+              <span className="text-slate-400">Top score</span>{" "}
               <span className="font-mono text-amber-300">
-                {best ? `${fmt(best.total_seconds)} — ${best.name}` : "unclaimed"}
+                {best ? `${best.score} pts — ${best.name} (${fmt(best.total_seconds)})` : "unclaimed"}
               </span>
             </div>
 
