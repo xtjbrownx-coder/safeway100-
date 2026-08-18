@@ -1,9 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CATALOG, byId } from "@/game/catalog";
+import { CATALOG, byId, realisticQty } from "@/game/catalog";
 import type { Game, RemotePlayer } from "@/game/engine";
 import { PLAYER_COLORS, type Presence, type StoreConnection } from "@/game/multiplayer";
-import { levelPoints, runScore, fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
+import {
+  levelPoints,
+  runScore,
+  fetchTopRuns,
+  fetchHallOfFame,
+  submitRun,
+  type RunEntry,
+  type HallEntry,
+} from "@/game/leaderboard";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
