@@ -502,6 +502,27 @@ function Index() {
             <p className="mt-2 text-center text-[11px] text-slate-500">
               WASD move · mouse look · E interact · F let go of cart · click/Q throw items
             </p>
+
+            <div className="mt-4 rounded-lg border border-amber-300/25 bg-amber-300/5 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+              {NEXT_UPDATE}
+            </div>
+
+            <div className="mt-3 rounded-lg border border-white/10 bg-slate-800/40 p-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Hall of fame · kept forever</p>
+              <ul className="mt-1.5 max-h-28 space-y-0.5 overflow-y-auto pr-1 text-[11px]">
+                {hall.length === 0 && <li className="text-slate-500">Nobody has beaten all 10 levels yet.</li>}
+                {hall.map((h, i) => (
+                  <li key={`${h.name}-${h.created_at}-${i}`} className="flex justify-between gap-2">
+                    <span className="text-slate-200">{h.name}</span>
+                    <span className="font-mono text-slate-400">
+                      {h.score} pts · {fmt(h.total_seconds)} ·{" "}
+                      {new Date(h.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
           </div>
         </div>
       )}
