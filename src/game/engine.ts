@@ -1518,13 +1518,31 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   }
 
 
+  let walkPhase = 0;
   function updateRemotes(dt: number) {
+    walkPhase += dt;
     for (const [, r] of remotes) {
+      const prevX = r.group.position.x;
+      const prevZ = r.group.position.z;
       r.group.position.lerp(r.target, Math.min(1, dt * 6));
-      let delta = ((r.yaw + Math.PI - r.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
+      const delta = ((r.yaw + Math.PI - r.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
       r.group.rotation.y += delta * Math.min(1, dt * 6);
+
+      const speed = Math.hypot(r.group.position.x - prevX, r.group.position.z - prevZ) / Math.max(dt, 0.001);
+      const limbs = r.group.userData['limbs'] as
+        | { legL: THREE.Group; legR: THREE.Group; armL: THREE.Group; armR: THREE.Group }
+        | undefined;
+      if (limbs) {
+        const amp = Math.min(speed / 3.2, 1) * 0.6;
+        const swing = Math.sin(walkPhase * 7) * amp;
+        limbs.legL.rotation.x = swing;
+        limbs.legR.rotation.x = -swing;
+        limbs.armL.rotation.x = -0.75 + swing * 0.15;
+        limbs.armR.rotation.x = -0.75 - swing * 0.15;
+      }
     }
   }
+
 
   // ---------- cart-to-cart collisions: sparks + dink ----------
   let audioCtx: AudioContext | null = null;
