@@ -2,11 +2,23 @@ import { supabase } from "@/integrations/supabase/client";
 
 export type RunEntry = { name: string; total_seconds: number; accuracy: number; score: number };
 
-/** Points: accuracy is king, speed adds a shrinking bonus. */
-export function computeScore(totalSeconds: number, accuracy: number) {
+/** Points for a single level, purely from accuracy. */
+export function levelPoints(accuracy: number) {
   const acc = Math.max(0, Math.min(100, Math.round(accuracy)));
-  const speedBonus = Math.max(0, 1800 - Math.round(totalSeconds)) * 2;
-  return Math.max(0, acc * 50 + speedBonus);
+  if (acc >= 99) return 100;
+  if (acc >= 80) return 80;
+  if (acc >= 60) return 50;
+  return 1;
+}
+
+/** Run score = sum of every level's accuracy points (max 1000 over 10 levels). */
+export function runScore(accuracies: number[]) {
+  return accuracies.reduce((s, a) => s + levelPoints(a), 0);
+}
+
+/** Kept for the stored run row: average accuracy scored across 10 levels. */
+export function computeScore(_totalSeconds: number, accuracy: number) {
+  return levelPoints(accuracy) * 10;
 }
 
 export async function fetchTopRuns(limit = 10): Promise<RunEntry[]> {
@@ -19,11 +31,11 @@ export async function fetchTopRuns(limit = 10): Promise<RunEntry[]> {
   return (data ?? []) as RunEntry[];
 }
 
-export async function submitRun(entry: Omit<RunEntry, "score">): Promise<void> {
+export async function submitRun(entry: Omit<RunEntry, "score"> & { score?: number }): Promise<void> {
   await supabase.from("leaderboard").insert({
     name: entry.name.slice(0, 20) || "Shopper",
     total_seconds: Math.max(1, Math.round(entry.total_seconds)),
     accuracy: Math.max(0, Math.min(100, Math.round(entry.accuracy))),
-    score: computeScore(entry.total_seconds, entry.accuracy),
+    score: entry.score ?? computeScore(entry.total_seconds, entry.accuracy),
   });
 }
