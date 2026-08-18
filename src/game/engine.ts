@@ -886,9 +886,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const c = buildCart("#3a4550", true);
       c.group.position.set(0, 0, 0.75);
       g.add(c.group);
+      g.userData['cartGroup'] = c.group;
+      g.userData['basketY'] = c.basketY;
     }
     return g;
   }
+
 
   // ---------- world leaderboard board (back wall) ----------
   const boardCanvas = makeCanvas(1024, 768);
