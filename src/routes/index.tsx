@@ -247,10 +247,8 @@ function Index() {
   const done = list.filter((e) => (counts.get(e.id) ?? 0) >= e.qty).length;
   const best = board[0];
   const rank = (board.filter((b) => b.score > finalScore).length || 0) + 1;
-  const liveScore = computeScore(
-    seconds,
-    accuracies.length ? accuracies.reduce((s, v) => s + v, 0) / accuracies.length : 100,
-  );
+  const liveScore = runScore(accuracies) + (phase === "checkout" ? levelPoints(result.score) : 0);
+
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950">
