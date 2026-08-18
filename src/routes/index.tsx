@@ -187,6 +187,7 @@ function Index() {
         })),
       );
       game.setQuality(qualityRef.current);
+      game.setTargetFps(targetRef.current);
       void refreshBoard();
 
     })();
@@ -200,6 +201,12 @@ function Index() {
     qualityRef.current = quality;
     gameRef.current?.setQuality(quality);
   }, [quality]);
+
+  useEffect(() => {
+    targetRef.current = targetFps;
+    gameRef.current?.setTargetFps(targetFps);
+  }, [targetFps]);
+
 
   useEffect(() => {
     if (!running) return;
