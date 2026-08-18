@@ -1950,17 +1950,22 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   function adaptResolution(dt: number) {
     perfAcc += dt;
     perfFrames++;
-    if (perfAcc < 1.25) return;
+    if (perfAcc < 0.6) return;
     const fps = perfFrames / perfAcc;
     perfAcc = 0;
     perfFrames = 0;
     // never go below native-ish sharpness; antialiasing keeps edges clean
-    const min = Math.max(1, Math.min(devicePixelRatio, 1));
-    const max = Math.min(Math.max(devicePixelRatio, 2), 2.5);
+    const min = Math.max(0.9, Math.min(devicePixelRatio, 1));
+    // cap total rendered pixels (~3.2M) so big windows stay smooth
+    const area = Math.max(1, canvas.clientWidth * canvas.clientHeight);
+    const budget = Math.sqrt(3_200_000 / area);
+    const max = Math.max(min, Math.min(Math.max(devicePixelRatio, 2), 2.5, budget));
 
     let next = renderScale;
-    if (fps < 45) next = Math.max(min, renderScale - 0.25);
-    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.25);
+    if (fps < 50) next = Math.max(min, renderScale - 0.25);
+    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.15);
+    next = Math.min(next, max);
+
     if (Math.abs(next - renderScale) > 0.01) {
       renderScale = next;
       renderer.setPixelRatio(renderScale);
