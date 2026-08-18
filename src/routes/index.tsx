@@ -64,6 +64,8 @@ function Index() {
   const [finalTime, setFinalTime] = useState(0);
   const [finalScore, setFinalScore] = useState(0);
   const [finalAccuracy, setFinalAccuracy] = useState(0);
+  const [cartHeld, setCartHeld] = useState(true);
+  const [carrying, setCarrying] = useState<string | null>(null);
 
   useEffect(() => setList(buildList(listSizeFor(1))), []);
 
@@ -85,6 +87,11 @@ function Index() {
         onCheckout: () => setPhase("checkout"),
         onLockChange: setLocked,
         onMove: (x, z, yaw) => netRef.current?.send(x, z, yaw),
+        onSteal: (victimId, productId) => netRef.current?.steal(victimId, productId),
+        onCartModeChange: (attached, held) => {
+          setCartHeld(attached);
+          setCarrying(held);
+        },
       });
       gameRef.current = game;
       void refreshBoard();
@@ -103,7 +110,8 @@ function Index() {
 
   useEffect(() => {
     netRef.current?.setItems(cart.length);
-  }, [cart.length]);
+    netRef.current?.setCart(cart);
+  }, [cart]);
 
   useEffect(() => () => netRef.current?.leave(), []);
 
@@ -116,6 +124,14 @@ function Index() {
       color: PLAYER_COLORS[Math.floor(Math.random() * PLAYER_COLORS.length)]!,
       onPlayers: (players: RemotePlayer[]) => gameRef.current?.setRemotePlayers(players),
       onRoster: setRoster,
+      onStolen: (productId: string) => {
+        gameRef.current?.removeItem(productId);
+        setCart((c) => {
+          const i = c.indexOf(productId);
+          if (i < 0) return c;
+          return c.filter((_, j) => j !== i);
+        });
+      },
     });
   }, []);
 
@@ -191,6 +207,39 @@ function Index() {
     gameRef.current?.lock();
   }, [level]);
 
+  const replayLevel = useCallback(() => {
+    setCart([]);
+    setScanned([]);
+    gameRef.current?.clearCart();
+    setPhase("shopping");
+    gameRef.current?.lock();
+  }, []);
+
+  const restartRun = useCallback(() => {
+    setLevel(1);
+    setAccuracies([]);
+    setCart([]);
+    setScanned([]);
+    setSeconds(0);
+    setRunning(true);
+    setList(buildList(listSizeFor(1)));
+    gameRef.current?.clearCart();
+    setPhase("shopping");
+    gameRef.current?.lock();
+  }, []);
+
+  const backToLobby = useCallback(() => {
+    setRunning(false);
+    setSeconds(0);
+    setLevel(1);
+    setAccuracies([]);
+    setCart([]);
+    setScanned([]);
+    gameRef.current?.clearCart();
+    setList(buildList(listSizeFor(1)));
+    setPhase("lobby");
+  }, []);
+
   const timeStr = fmt(seconds);
   const done = list.filter((e) => (counts.get(e.id) ?? 0) >= e.qty).length;
   const best = board[0];
@@ -236,6 +285,15 @@ function Index() {
             <p className="mt-1.5 border-t border-white/10 pt-1 text-[10px] text-slate-400">
               {done}/{list.length} found · Cart {cart.length} · {roster.length || 1} online
             </p>
+            <p className="text-[10px] text-slate-400">
+              {cartHeld ? (
+                <span className="text-slate-300">Pushing cart · [F] to let go</span>
+              ) : (
+                <span className="text-amber-300">
+                  Cart parked · {carrying ? `carrying ${byId(carrying).name}` : "hands free (1 item max)"}
+                </span>
+              )}
+            </p>
           </div>
 
           <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
@@ -249,16 +307,38 @@ function Index() {
           )}
 
           <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-[0.22em] text-slate-200/60">
-            WASD · Shift run · Mouse look · E interact
+            WASD · Shift run · Mouse look · E interact · F drop cart · Click/Q throw
           </div>
 
           {!locked && (
-            <button
-              onClick={() => gameRef.current?.lock()}
-              className="absolute inset-0 flex items-center justify-center bg-slate-950/60 text-base font-medium text-slate-100 backdrop-blur-sm"
-            >
-              Click to resume shopping
-            </button>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/70 backdrop-blur-sm">
+              <button
+                onClick={() => gameRef.current?.lock()}
+                className="rounded-lg bg-emerald-400 px-6 py-3 text-base font-semibold text-slate-950 hover:bg-emerald-300"
+              >
+                Resume shopping
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={replayLevel}
+                  className="rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-100 hover:bg-white/10"
+                >
+                  Replay level {level}
+                </button>
+                <button
+                  onClick={restartRun}
+                  className="rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-100 hover:bg-white/10"
+                >
+                  Restart run
+                </button>
+                <button
+                  onClick={backToLobby}
+                  className="rounded-lg border border-white/20 px-4 py-2 text-sm text-slate-300 hover:bg-white/10"
+                >
+                  Quit to lobby
+                </button>
+              </div>
+            </div>
           )}
         </>
       )}
@@ -339,7 +419,9 @@ function Index() {
             >
               Start the 10-level run
             </button>
-            <p className="mt-2 text-center text-[11px] text-slate-500">WASD to move · mouse to look · E to interact</p>
+            <p className="mt-2 text-center text-[11px] text-slate-500">
+              WASD move · mouse look · E interact · F let go of cart · click/Q throw items
+            </p>
           </div>
         </div>
       )}
@@ -408,6 +490,12 @@ function Index() {
                 Back to shopping
               </button>
               <button
+                onClick={replayLevel}
+                className="rounded-lg border border-amber-300/30 px-4 py-2.5 text-sm text-amber-200 hover:bg-amber-300/10"
+              >
+                Replay level
+              </button>
+              <button
                 onClick={payAndFinishLevel}
                 disabled={cart.length === 0 || scanned.length !== cart.length}
                 className="flex-1 rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-30"
@@ -463,6 +551,20 @@ function Index() {
             >
               Start level {level + 1}
             </button>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={replayLevel}
+                className="flex-1 rounded-lg border border-slate-400 px-4 py-2 text-xs text-slate-700 hover:bg-slate-200"
+              >
+                Replay level {level}
+              </button>
+              <button
+                onClick={restartRun}
+                className="flex-1 rounded-lg border border-slate-400 px-4 py-2 text-xs text-slate-700 hover:bg-slate-200"
+              >
+                Restart run
+              </button>
+            </div>
           </div>
         </div>
       )}

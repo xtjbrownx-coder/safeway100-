@@ -2,7 +2,15 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { CATALOG, AISLES, byId, type ProductDef } from "./catalog";
 
-export type RemotePlayer = { id: string; name: string; x: number; z: number; yaw: number; color: string };
+export type RemotePlayer = {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  yaw: number;
+  color: string;
+  cart?: string[];
+};
 
 export type GameCallbacks = {
   onPrompt: (text: string | null) => void;
@@ -10,7 +18,10 @@ export type GameCallbacks = {
   onCheckout: () => void;
   onLockChange: (locked: boolean) => void;
   onMove?: (x: number, z: number, yaw: number) => void;
+  onSteal?: (victimId: string, productId: string) => void;
+  onCartModeChange?: (attached: boolean, carrying: string | null) => void;
 };
+
 
 // ---------------------------------------------------------------- textures
 function makeCanvas(w: number, h: number) {
@@ -121,6 +132,42 @@ function productMaterial(p: ProductDef, tex: THREE.Texture) {
   });
 }
 
+// ---------------------------------------------------------------- audio
+let sharedAudio: AudioContext | null = null;
+function audio() {
+  const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return null;
+  sharedAudio ??= new Ctor();
+  if (sharedAudio.state === "suspended") void sharedAudio.resume();
+  return sharedAudio;
+}
+
+function tone(freq: number, dur: number, type: OscillatorType, vol: number, slide = 1) {
+  try {
+    const ctx = audio();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    g.connect(ctx.destination);
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    osc.frequency.exponentialRampToValueAtTime(freq * slide, t0 + dur);
+    osc.connect(g);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  } catch {
+    /* audio unavailable */
+  }
+}
+
+function thunk(open: boolean) {
+  tone(open ? 240 : 150, 0.22, "sine", 0.16, open ? 1.35 : 0.7);
+}
+
 // ---------------------------------------------------------------- game
 export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -158,34 +205,60 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const [c, g] = makeCanvas(512, 512);
     g.fillStyle = "#e9e7e2";
     g.fillRect(0, 0, 512, 512);
+    // terrazzo speckle
     for (let i = 0; i < 26000; i++) {
-      const v = 200 + Math.random() * 55;
-      g.fillStyle = `rgba(${v},${v - 3},${v - 10},${Math.random() * 0.35})`;
+      const v = 195 + Math.random() * 60;
+      g.fillStyle = `rgba(${v},${v - 3},${v - 10},${Math.random() * 0.4})`;
       g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
     }
-    // polished tile seams
-    g.strokeStyle = "rgba(150,152,155,0.55)";
-    g.lineWidth = 2;
-    g.strokeRect(1, 1, 510, 510);
-    return toTex(c, [W / 1.5, D / 1.5]);
+    for (let i = 0; i < 700; i++) {
+      const r = 2 + Math.random() * 5;
+      g.fillStyle = `rgba(${120 + Math.random() * 90},${118 + Math.random() * 90},${115 + Math.random() * 90},0.32)`;
+      g.beginPath();
+      g.arc(Math.random() * 512, Math.random() * 512, r, 0, Math.PI * 2);
+      g.fill();
+    }
+    // visible grid: 2x2 tiles per texture repeat, deep grout + highlight bevel
+    const grout = (x: number, y: number, w: number, h: number) => {
+      g.fillStyle = "rgba(96,101,108,0.85)";
+      g.fillRect(x, y, w, h);
+      g.fillStyle = "rgba(255,255,255,0.45)";
+      g.fillRect(x + w, y, Math.max(1, w * 0.4), h);
+      g.fillRect(x, y + h, w, Math.max(1, h * 0.4));
+    };
+    for (const p of [0, 256]) {
+      grout(p, 0, 5, 512);
+      grout(0, p, 512, 5);
+    }
+    grout(507, 0, 5, 512);
+    grout(0, 507, 512, 5);
+    return toTex(c, [W / 3, D / 3]);
   })();
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(W, D),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.16, metalness: 0.02, envMapIntensity: 1.2 }),
+    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.14, metalness: 0.04, envMapIntensity: 1.5 }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
   // polished-concrete walkway strips between runs
-  const walkMat = new THREE.MeshStandardMaterial({ color: "#dfe3e6", roughness: 0.1, metalness: 0.05 });
+  const walkMat = new THREE.MeshStandardMaterial({
+    color: "#dfe3e6",
+    roughness: 0.08,
+    metalness: 0.08,
+    envMapIntensity: 1.6,
+    transparent: true,
+    opacity: 0.85,
+  });
   for (let i = 0; i < RUN_X.length - 1; i++) {
     const strip = new THREE.Mesh(new THREE.PlaneGeometry(2.2, RUN_LEN + 4), walkMat);
     strip.rotation.x = -Math.PI / 2;
-    strip.position.set((RUN_X[i]! + RUN_X[i + 1]!) / 2, 0.005, (RUN_Z0 + RUN_Z1) / 2);
+    strip.position.set((RUN_X[i]! + RUN_X[i + 1]!) / 2, 0.006, (RUN_Z0 + RUN_Z1) / 2);
     scene.add(strip);
   }
+
 
   // ---------- ceiling + structure ----------
   const ceiling = new THREE.Mesh(
@@ -196,7 +269,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   ceiling.position.y = H;
   scene.add(ceiling);
 
-  const steel = new THREE.MeshStandardMaterial({ color: "#9aa3ac", roughness: 0.42, metalness: 0.72 });
+  const steel = new THREE.MeshPhysicalMaterial({ color: "#9aa3ac", roughness: 0.28, metalness: 0.9, envMapIntensity: 2.0, clearcoat: 0.6, clearcoatRoughness: 0.15 });
   for (let x = -W / 2 + 6; x <= W / 2 - 6; x += 8) {
     const truss = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, D), steel);
     truss.position.set(x, H - 0.4, 0);
@@ -273,8 +346,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     );
 
   // ---------- shared shelf materials ----------
-  const shelfSteel = new THREE.MeshStandardMaterial({ color: "#c3c9cf", roughness: 0.34, metalness: 0.85 });
-  const shelfDeck = new THREE.MeshStandardMaterial({ color: "#d6dade", roughness: 0.3, metalness: 0.8 });
+  const shelfSteel = new THREE.MeshPhysicalMaterial({ color: "#c3c9cf", roughness: 0.2, metalness: 0.95, envMapIntensity: 2.2, clearcoat: 0.7, clearcoatRoughness: 0.12 });
+  const shelfDeck = new THREE.MeshPhysicalMaterial({ color: "#d6dade", roughness: 0.16, metalness: 0.9, envMapIntensity: 2.4, clearcoat: 0.8, clearcoatRoughness: 0.1 });
   const pegboard = (() => {
     const [c, g] = makeCanvas(128, 128);
     g.fillStyle = "#aeb6bd";
@@ -442,6 +515,152 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     scene.add(t);
   }
 
+  // ---------- refrigerated cases (openable glass doors) ----------
+  type FridgeDoor = { pivot: THREE.Group; panel: THREE.Mesh; open: boolean; angle: number; stock: THREE.Mesh[] };
+  const fridgeDoors: FridgeDoor[] = [];
+  const doorPanels: THREE.Mesh[] = [];
+
+  const fridgeGlass = new THREE.MeshPhysicalMaterial({
+    color: "#dff0f7",
+    transmission: 0.86,
+    roughness: 0.04,
+    thickness: 0.12,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.5,
+    envMapIntensity: 2.4,
+    clearcoat: 1,
+  });
+  const fridgeBody = new THREE.MeshPhysicalMaterial({
+    color: "#e7ecf0",
+    roughness: 0.22,
+    metalness: 0.85,
+    envMapIntensity: 2.2,
+    clearcoat: 0.6,
+  });
+  const fridgeInner = new THREE.MeshStandardMaterial({ color: "#c9d6dd", roughness: 0.35, metalness: 0.4 });
+  const chromeBar = new THREE.MeshPhysicalMaterial({
+    color: "#e6ebee",
+    roughness: 0.09,
+    metalness: 1,
+    envMapIntensity: 2.6,
+    clearcoat: 1,
+  });
+
+  function buildFridgeBank(aisle: string, x: number, z0: number, facing: 1 | -1, units: number, label: string) {
+    const items = CATALOG.filter((p) => p.aisle === aisle);
+    const UW = 1.5;
+    const depth = 1.5;
+    const height = 2.6;
+    const bankLen = units * UW;
+    addCollider(x, z0 + bankLen / 2 - UW / 2, depth + 0.2, bankLen + 0.2);
+
+    // shell
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(depth, height, bankLen), fridgeBody);
+    shell.position.set(x, height / 2, z0 + bankLen / 2 - UW / 2);
+    shell.castShadow = shell.receiveShadow = true;
+    scene.add(shell);
+
+    // header sign
+    const header = new THREE.Mesh(
+      new THREE.PlaneGeometry(bankLen, 0.8),
+      new THREE.MeshStandardMaterial({
+        map: signTex(label, aisle, "#0d4f7a"),
+        roughness: 0.5,
+        emissive: new THREE.Color("#0d4f7a"),
+        emissiveIntensity: 0.3,
+      }),
+    );
+    header.position.set(x + facing * (depth / 2 + 0.02), height + 0.45, z0 + bankLen / 2 - UW / 2);
+    header.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+    scene.add(header);
+
+    const caseLight = new THREE.PointLight("#eaf6ff", 6, 12, 2);
+    caseLight.position.set(x + facing * 1.2, 2.2, z0 + bankLen / 2 - UW / 2);
+    scene.add(caseLight);
+
+    for (let u = 0; u < units; u++) {
+      const cz = z0 + u * UW;
+
+      // interior alcove + stock on 3 racks
+      const alcove = new THREE.Mesh(new THREE.BoxGeometry(depth - 0.3, height - 0.5, UW - 0.14), fridgeInner);
+      alcove.position.set(x - facing * 0.12, height / 2 - 0.05, cz);
+      scene.add(alcove);
+
+      const stock: THREE.Mesh[] = [];
+      if (items.length) {
+        [0.62, 1.24, 1.86].forEach((sy, level) => {
+          const rack = new THREE.Mesh(new THREE.BoxGeometry(depth - 0.4, 0.03, UW - 0.2), shelfDeck);
+          rack.position.set(x - facing * 0.1, sy, cz);
+          scene.add(rack);
+          for (let k = 0; k < 4; k++) {
+            const p = items[(u * 3 + level * 2 + k) % items.length]!;
+            const m = meshFor(p);
+            m.position.set(x + facing * (depth / 2 - 0.45), sy + 0.17, cz - UW / 2 + 0.28 + k * 0.3);
+            m.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+            m.userData['productId'] = p.id;
+            m.updateMatrix();
+            m.matrixAutoUpdate = false;
+            scene.add(m);
+            stock.push(m);
+          }
+        });
+      }
+
+      // hinged glass door
+      const pivot = new THREE.Group();
+      pivot.position.set(x + facing * (depth / 2 + 0.03), height / 2 - 0.1, cz - (UW / 2) * facing);
+      scene.add(pivot);
+
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(UW - 0.06, height - 0.4), fridgeGlass);
+      panel.position.set(0, 0, (facing * (UW - 0.06)) / 2);
+      panel.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+      panel.userData['fridgeIndex'] = fridgeDoors.length;
+      pivot.add(panel);
+      doorPanels.push(panel);
+
+      const frameMat = fridgeBody;
+      for (const off of [-1, 1]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, height - 0.4, 0.06), frameMat);
+        bar.position.set(0, 0, (facing * (UW - 0.06)) / 2 + off * ((UW - 0.06) / 2));
+        pivot.add(bar);
+      }
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, height - 0.9, 8), chromeBar);
+      handle.position.set(facing * 0.07, 0, (facing * (UW - 0.06)) / 2 + facing * ((UW - 0.06) / 2 - 0.12));
+      pivot.add(handle);
+
+      fridgeDoors.push({ pivot, panel, open: false, angle: 0, stock });
+    }
+  }
+
+  buildFridgeBank("Dairy", -W / 2 + 1.4, -13, 1, 5, "DAIRY");
+  buildFridgeBank("Meat", W / 2 - 1.4, -13, -1, 5, "MEAT");
+
+  function updateFridgeDoors(dt: number) {
+    for (const d of fridgeDoors) {
+      const wanted = d.open ? 1 : 0;
+      if (Math.abs(d.angle - wanted) < 0.001) continue;
+      d.angle += (wanted - d.angle) * Math.min(1, dt * 7);
+      d.pivot.rotation.y = -d.angle * 1.9;
+    }
+  }
+
+  function toggleFridge(index: number) {
+    const d = fridgeDoors[index];
+    if (!d) return;
+    d.open = !d.open;
+    if (d.open) {
+      for (const m of d.stock) if (!products.includes(m)) products.push(m);
+    } else {
+      for (const m of d.stock) {
+        const i = products.indexOf(m);
+        if (i >= 0) products.splice(i, 1);
+      }
+    }
+    thunk(d.open);
+  }
+
+
   // ---------- checkout front end ----------
   const kiosks: THREE.Vector3[] = [];
   const counterMat = new THREE.MeshStandardMaterial({ color: "#f2f4f6", roughness: 0.3, metalness: 0.25 });
@@ -534,7 +753,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   // ---------- shopping cart (first person, visible when looking down) ----------
   function buildCart(tint: string, small = false) {
     const g = new THREE.Group();
-    const chrome = new THREE.MeshStandardMaterial({ color: "#dfe4e8", roughness: 0.22, metalness: 0.95 });
+    const chrome = new THREE.MeshPhysicalMaterial({ color: "#e6ebee", roughness: 0.1, metalness: 1.0, envMapIntensity: 2.6, clearcoat: 1, clearcoatRoughness: 0.06 });
     const plastic = new THREE.MeshStandardMaterial({ color: tint, roughness: 0.4, metalness: 0.1 });
     const s = small ? 0.85 : 1;
 
@@ -607,6 +826,13 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const cartItems: THREE.Mesh[] = [];
   const cartAnchor = new THREE.Object3D();
 
+  // detachable-cart state
+  let cartAttached = true;
+  const cartVel = new THREE.Vector3();
+  let carried: { id: string; mesh: THREE.Mesh } | null = null;
+  const projectiles: { mesh: THREE.Mesh; id: string; vel: THREE.Vector3 }[] = [];
+  const RIM_Y = 0.95;
+
   function layoutCart() {
     cartItems.forEach((m, i) => {
       const col = i % 3;
@@ -635,6 +861,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       layoutCart();
     }
   }
+
 
   // ---------- shoppers (NPCs) + remote players ----------
   const skinTones = ["#e8c39e", "#c98b62", "#8d5a3b", "#f0d5bd", "#5f3b28"];
@@ -670,9 +897,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const c = buildCart("#3a4550", true);
       c.group.position.set(0, 0, 0.75);
       g.add(c.group);
+      g.userData['cartGroup'] = c.group;
+      g.userData['basketY'] = c.basketY;
     }
     return g;
   }
+
 
   // ---------- world leaderboard board (back wall) ----------
   const boardCanvas = makeCanvas(1024, 768);
@@ -733,7 +963,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
 
   // remote players
-  const remotes = new Map<string, { group: THREE.Group; target: THREE.Vector3; yaw: number; label: THREE.Sprite }>();
+  type RemoteEntry = {
+    group: THREE.Group;
+    target: THREE.Vector3;
+    yaw: number;
+    label: THREE.Sprite;
+    name: string;
+    cart: string[];
+    cartMeshes: THREE.Mesh[];
+  };
+  const remotes = new Map<string, RemoteEntry>();
+
   function nameSprite(name: string, color: string) {
     const [c, g] = makeCanvas(256, 64);
     g.fillStyle = "rgba(12,16,22,0.72)";
@@ -751,6 +991,28 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     return sp;
   }
 
+  function syncRemoteCart(entry: RemoteEntry, ids: string[]) {
+    const same = ids.length === entry.cart.length && ids.every((v, i) => entry.cart[i] === v);
+    if (same) return;
+    entry.cart = [...ids];
+    const cg = entry.group.userData['cartGroup'] as THREE.Group | undefined;
+    if (!cg) return;
+    entry.cartMeshes.forEach((m) => cg.remove(m));
+    entry.cartMeshes.length = 0;
+    const basketY = (entry.group.userData['basketY'] as number) ?? 0.56;
+    ids.slice(0, 24).forEach((id, i) => {
+      const m = meshFor(byId(id));
+      m.castShadow = false;
+      const col = i % 3;
+      const row = Math.floor(i / 3) % 4;
+      const layer = Math.floor(i / 12);
+      m.position.set(-0.17 + col * 0.17, basketY + 0.07 + layer * 0.15, -0.24 + row * 0.16);
+      m.rotation.set(0, (i % 5) * 0.4, 0);
+      cg.add(m);
+      entry.cartMeshes.push(m);
+    });
+  }
+
   function setRemotePlayers(list: RemotePlayer[]) {
     const seen = new Set<string>();
     for (const rp of list) {
@@ -762,11 +1024,21 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
         group.add(label);
         scene.add(group);
         group.position.set(rp.x, 0, rp.z);
-        entry = { group, target: new THREE.Vector3(rp.x, 0, rp.z), yaw: rp.yaw, label };
+        entry = {
+          group,
+          target: new THREE.Vector3(rp.x, 0, rp.z),
+          yaw: rp.yaw,
+          label,
+          name: rp.name,
+          cart: [],
+          cartMeshes: [],
+        };
         remotes.set(rp.id, entry);
       }
       entry.target.set(rp.x, 0, rp.z);
       entry.yaw = rp.yaw;
+      entry.name = rp.name;
+      if (rp.cart) syncRemoteCart(entry, rp.cart);
     }
     for (const [id, entry] of remotes) {
       if (!seen.has(id)) {
@@ -776,18 +1048,26 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     }
   }
 
+
   // ---------- input ----------
   const keys = new Set<string>();
   let locked = false;
   const onKeyDown = (e: KeyboardEvent) => {
     keys.add(e.code);
-    if (e.code === "KeyE" && locked) interact();
+    if (!locked) return;
+    if (e.code === "KeyE") interact();
+    if (e.code === "KeyF") toggleCartHold();
+    if (e.code === "KeyQ") throwCarried();
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
   const onMouseMove = (e: MouseEvent) => {
     if (!locked) return;
     player.yaw -= e.movementX * 0.0021;
     player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * 0.0021, -1.35, 1.2);
+  };
+  const onMouseDown = (e: MouseEvent) => {
+    if (!locked || e.button !== 0) return;
+    throwCarried();
   };
   const onLock = () => {
     locked = document.pointerLockElement === canvas;
@@ -796,35 +1076,139 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
   document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mousedown", onMouseDown);
   document.addEventListener("pointerlockchange", onLock);
 
   const raycaster = new THREE.Raycaster();
   raycaster.far = 3.4;
   let target: THREE.Mesh | null = null;
+  let doorTarget: number | null = null;
+  let stealTarget: string | null = null;
   let atKiosk = false;
 
+  function notifyCartMode() {
+    cb.onCartModeChange?.(cartAttached, carried?.id ?? null);
+  }
+
+  function toggleCartHold() {
+    if (!cartAttached) {
+      // must be next to the cart to grab it again
+      const d = Math.hypot(cart.group.position.x - player.pos.x, cart.group.position.z - player.pos.z);
+      if (d > 1.9) {
+        cb.onPrompt("Walk back to your cart to grab it  [F]");
+        lastPrompt = "grab";
+        return;
+      }
+      cartAttached = true;
+      cartVel.set(0, 0, 0);
+      tone(300, 0.16, "square", 0.09, 1.4);
+    } else {
+      cartAttached = false;
+      cartVel.set(0, 0, 0);
+      tone(210, 0.18, "square", 0.09, 0.8);
+    }
+    notifyCartMode();
+  }
+
+  function dropCarriedIntoCart() {
+    if (!carried) return;
+    scene.remove(carried.mesh);
+    addToCart(carried.id);
+    cb.onPickup(carried.id);
+    tone(520, 0.12, "sine", 0.1, 1.6);
+    carried = null;
+    notifyCartMode();
+  }
+
+  function throwCarried() {
+    if (!carried) return;
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const mesh = carried.mesh;
+    scene.add(mesh);
+    mesh.position.copy(camera.position).add(dir.clone().multiplyScalar(0.5));
+    projectiles.push({
+      mesh,
+      id: carried.id,
+      vel: dir.multiplyScalar(9.5).add(new THREE.Vector3(0, 2.4, 0)),
+    });
+    carried = null;
+    tone(420, 0.1, "triangle", 0.07, 0.7);
+    notifyCartMode();
+  }
+
+  function takeProduct(mesh: THREE.Mesh) {
+    const id = mesh.userData['productId'] as string;
+    const i = products.indexOf(mesh);
+    if (i >= 0) products.splice(i, 1);
+    if (cartAttached) {
+      scene.remove(mesh);
+      addToCart(id);
+      cb.onPickup(id);
+    } else {
+      if (carried) {
+        cb.onPrompt("Hands full — stash this in your cart first");
+        lastPrompt = "full";
+        products.push(mesh);
+        return;
+      }
+      mesh.matrixAutoUpdate = true;
+      carried = { id, mesh };
+      notifyCartMode();
+    }
+    target = null;
+  }
+
   function interact() {
+    if (doorTarget !== null) {
+      toggleFridge(doorTarget);
+      return;
+    }
+    if (stealTarget) {
+      const victim = remotes.get(stealTarget);
+      if (victim && victim.cart.length) {
+        const id = victim.cart[Math.floor(Math.random() * victim.cart.length)]!;
+        cb.onSteal?.(stealTarget, id);
+        if (cartAttached) {
+          addToCart(id);
+          cb.onPickup(id);
+        } else if (!carried) {
+          const mesh = meshFor(byId(id));
+          mesh.userData['productId'] = id;
+          scene.add(mesh);
+          carried = { id, mesh };
+          notifyCartMode();
+        }
+        tone(880, 0.13, "square", 0.1, 1.5);
+      }
+      return;
+    }
+    if (!cartAttached && carried) {
+      const d = Math.hypot(cart.group.position.x - player.pos.x, cart.group.position.z - player.pos.z);
+      if (d < 1.8) {
+        dropCarriedIntoCart();
+        return;
+      }
+    }
     if (atKiosk) {
       document.exitPointerLock();
       cb.onCheckout();
       return;
     }
-    if (target) {
-      const id = target.userData['productId'] as string;
-      scene.remove(target);
-      const i = products.indexOf(target);
-      if (i >= 0) products.splice(i, 1);
-      target = null;
-      addToCart(id);
-      cb.onPickup(id);
-    }
+    if (target) takeProduct(target);
   }
+
 
   // ---------- loop ----------
   const clock = new THREE.Clock();
   let raf = 0;
   const tmpBox = new THREE.Box3();
   const tmpV = new THREE.Vector3();
+
+  function hitsCollider(x: number, z: number, r: number) {
+    tmpBox.setFromCenterAndSize(tmpV.set(x, 1, z), new THREE.Vector3(r * 2, 2, r * 2));
+    return colliders.some((c) => c.intersectsBox(tmpBox));
+  }
 
   function move(dt: number) {
     const dir = new THREE.Vector3();
@@ -834,7 +1218,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     if (keys.has("KeyS") || keys.has("ArrowDown")) dir.sub(fwd);
     if (keys.has("KeyD") || keys.has("ArrowRight")) dir.add(right);
     if (keys.has("KeyA") || keys.has("ArrowLeft")) dir.sub(right);
-    const speed = keys.has("ShiftLeft") ? 5.8 : 3.2;
+    const freeBoost = cartAttached ? 1 : 1.55;
+    const speed = (keys.has("ShiftLeft") ? 5.8 : 3.2) * freeBoost;
     if (dir.lengthSq() > 0) dir.normalize().multiplyScalar(speed);
     player.vel.lerp(dir, 1 - Math.pow(0.0015, dt));
 
@@ -842,8 +1227,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const tryAxis = (axis: "x" | "z", amount: number) => {
       const old = player.pos[axis];
       player.pos[axis] += amount;
-      tmpBox.setFromCenterAndSize(tmpV.set(player.pos.x, 1, player.pos.z), new THREE.Vector3(r * 2, 2, r * 2));
-      if (colliders.some((c) => c.intersectsBox(tmpBox))) player.pos[axis] = old;
+      if (hitsCollider(player.pos.x, player.pos.z, r)) player.pos[axis] = old;
     };
     tryAxis("x", player.vel.x * dt);
     tryAxis("z", player.vel.z * dt);
@@ -855,43 +1239,205 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
   }
 
+  const CART_BODY_R = 0.5;
+  let shelfHitCooldown = 0;
+
+  function pushCart(impulse: THREE.Vector3, fromDir: THREE.Vector3) {
+    // rolling axis is the cart's local forward (wheels roll along it)
+    const cy = cart.group.rotation.y;
+    const fwd = new THREE.Vector3(-Math.sin(cy), 0, -Math.cos(cy));
+    const along = Math.abs(fromDir.dot(fwd));
+    const factor = along > 0.6 ? 3.2 : 0.6; // rolling side vs. sideways skid
+    cartVel.add(impulse.multiplyScalar(factor));
+  }
+
   function updateCart(dt: number) {
-    const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-    cartAnchor.position.set(player.pos.x + fwd.x * 1.05, 0, player.pos.z + fwd.z * 1.05);
-    cart.group.position.lerp(cartAnchor.position, 1 - Math.pow(0.0008, dt));
-    const wanted = player.yaw;
-    let delta = ((wanted - cart.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
-    cart.group.rotation.y += delta * Math.min(1, dt * 8);
+    if (cartAttached) {
+      const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+      const wantX = player.pos.x + fwd.x * 1.05;
+      const wantZ = player.pos.z + fwd.z * 1.05;
+      cartAnchor.position.set(wantX, 0, wantZ);
+      cart.group.position.lerp(cartAnchor.position, 1 - Math.pow(0.0008, dt));
+
+      // cart body collides with shelves, fridges, counters
+      if (hitsCollider(cart.group.position.x, cart.group.position.z, CART_BODY_R)) {
+        const back = new THREE.Vector3(player.pos.x - cart.group.position.x, 0, player.pos.z - cart.group.position.z);
+        if (back.lengthSq() > 1e-6) {
+          back.normalize().multiplyScalar(0.09);
+          player.pos.x += back.x;
+          player.pos.z += back.z;
+          camera.position.set(player.pos.x, camera.position.y, player.pos.z);
+          cart.group.position.x += back.x;
+          cart.group.position.z += back.z;
+          cartAnchor.position.copy(cart.group.position);
+        }
+        player.vel.multiplyScalar(0.25);
+        if (shelfHitCooldown === 0) {
+          shelfHitCooldown = 0.5;
+          burstSparks(new THREE.Vector3(cart.group.position.x, 0.7, cart.group.position.z));
+          dink();
+        }
+      }
+
+      const wanted = player.yaw;
+      const delta = ((wanted - cart.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
+      cart.group.rotation.y += delta * Math.min(1, dt * 8);
+    } else {
+      // loose cart: rolls, slows down, bumps into fixtures
+      cartVel.multiplyScalar(Math.pow(0.12, dt));
+      if (cartVel.lengthSq() < 0.0004) cartVel.set(0, 0, 0);
+      const step = (axis: "x" | "z") => {
+        const old = cart.group.position[axis];
+        cart.group.position[axis] += cartVel[axis] * dt;
+        if (hitsCollider(cart.group.position.x, cart.group.position.z, CART_BODY_R)) {
+          cart.group.position[axis] = old;
+          cartVel[axis] *= -0.28;
+          if (shelfHitCooldown === 0 && Math.abs(cartVel[axis]) > 0.6) {
+            shelfHitCooldown = 0.5;
+            burstSparks(new THREE.Vector3(cart.group.position.x, 0.7, cart.group.position.z));
+            dink();
+          }
+        }
+      };
+      step("x");
+      step("z");
+      cart.group.position.x = THREE.MathUtils.clamp(cart.group.position.x, -W / 2 + 1, W / 2 - 1);
+      cart.group.position.z = THREE.MathUtils.clamp(cart.group.position.z, -D / 2 + 1, D / 2 - 1);
+      cartAnchor.position.copy(cart.group.position);
+
+      // the player can shove their own parked cart around
+      const dx = cart.group.position.x - player.pos.x;
+      const dz = cart.group.position.z - player.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.95 && d > 1e-4) {
+        const fromDir = new THREE.Vector3(dx / d, 0, dz / d);
+        pushCart(fromDir.clone().multiplyScalar(1.6), fromDir);
+        player.pos.x -= (dx / d) * 0.05;
+        player.pos.z -= (dz / d) * 0.05;
+      }
+    }
+  }
+
+  function updateCarried(dt: number) {
+    shelfHitCooldown = Math.max(0, shelfHitCooldown - dt);
+    if (carried) {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+      carried.mesh.position
+        .copy(camera.position)
+        .add(dir.multiplyScalar(0.62))
+        .add(right.multiplyScalar(0.24))
+        .add(new THREE.Vector3(0, -0.22, 0));
+      carried.mesh.rotation.y += dt * 1.2;
+    }
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const pr = projectiles[i]!;
+      pr.vel.y -= 12 * dt;
+      pr.mesh.position.addScaledVector(pr.vel, dt);
+      pr.mesh.rotation.x += dt * 6;
+      pr.mesh.rotation.z += dt * 4;
+
+      const cp = cart.group.position;
+      const inXZ = Math.hypot(pr.mesh.position.x - cp.x, pr.mesh.position.z - cp.z) < 0.44;
+      // must drop in through the TOP half of the basket
+      if (inXZ && pr.vel.y < 0 && pr.mesh.position.y < RIM_Y + 0.1 && pr.mesh.position.y > RIM_Y - 0.35) {
+        scene.remove(pr.mesh);
+        projectiles.splice(i, 1);
+        addToCart(pr.id);
+        cb.onPickup(pr.id);
+        tone(760, 0.14, "sine", 0.12, 1.7);
+        continue;
+      }
+      if (inXZ && pr.mesh.position.y < RIM_Y - 0.35 && pr.mesh.position.y > 0.25) {
+        // clanged off the side of the basket
+        pr.vel.multiplyScalar(-0.35);
+        dink();
+      }
+      if (pr.mesh.position.y <= 0.11) {
+        pr.mesh.position.y = 0.11;
+        scene.remove(pr.mesh);
+        projectiles.splice(i, 1);
+        const dropped = meshFor(byId(pr.id));
+        dropped.userData['productId'] = pr.id;
+        dropped.position.copy(pr.mesh.position);
+        scene.add(dropped);
+        products.push(dropped);
+        tone(160, 0.1, "sine", 0.06, 0.6);
+      }
+    }
   }
 
   let lastPrompt: string | null = null;
   const nearby: THREE.Mesh[] = [];
+  const remoteCartPos = new THREE.Vector3();
   function updatePrompt() {
     let bestK = Infinity;
     for (const k of kiosks) bestK = Math.min(bestK, camera.position.distanceTo(k));
     atKiosk = bestK < 2.8;
+    doorTarget = null;
+    stealTarget = null;
+    target = null;
     let text: string | null = null;
-    if (atKiosk) {
+
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+    // steal from another shopper's cart
+    let bestSteal = 2.6;
+    for (const [id, r] of remotes) {
+      if (!r.cart.length) continue;
+      const ry = r.group.rotation.y;
+      remoteCartPos.set(r.group.position.x + Math.sin(ry) * 0.75, 1, r.group.position.z + Math.cos(ry) * 0.75);
+      const d = remoteCartPos.distanceTo(camera.position);
+      if (d < bestSteal) {
+        bestSteal = d;
+        stealTarget = id;
+        text = `Swipe an item from ${r.name}'s cart (${r.cart.length})  [E]`;
+      }
+    }
+
+    if (!stealTarget) {
+      const doorHit = raycaster.intersectObjects(doorPanels, false)[0];
+      if (doorHit && doorHit.distance < 2.6) {
+        doorTarget = doorHit.object.userData['fridgeIndex'] as number;
+        text = `${fridgeDoors[doorTarget]?.open ? "Close" : "Open"} cooler door  [E]`;
+      }
+    }
+
+    if (!stealTarget && doorTarget === null && !cartAttached && carried) {
+      const d = Math.hypot(cart.group.position.x - player.pos.x, cart.group.position.z - player.pos.z);
+      if (d < 1.8) text = "Put item in cart  [E]  ·  or throw it  [click / Q]";
+    }
+
+    if (!text && atKiosk) {
       text = "Use self-checkout  [E]";
-      target = null;
-    } else {
+    } else if (!text) {
       nearby.length = 0;
       for (const p of products) {
         if (p.position.distanceToSquared(camera.position) < 16) nearby.push(p);
       }
-      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const hit = raycaster.intersectObjects(nearby, false)[0];
       target = (hit?.object as THREE.Mesh) ?? null;
       if (target) {
         const p = byId(target.userData['productId'] as string);
-        text = `Take ${p.brand} ${p.name}  ·  $${p.price.toFixed(2)}  [E]`;
+        text =
+          !cartAttached && carried
+            ? "Hands full — stash the item in your cart first"
+            : `Take ${p.brand} ${p.name}  ·  $${p.price.toFixed(2)}  [E]`;
       }
     }
+
+    if (!text) {
+      text = cartAttached ? "Let go of cart  [F] — run faster, carry one item" : "Grab your cart  [F]";
+    }
+
     if (text !== lastPrompt) {
       lastPrompt = text;
       cb.onPrompt(text);
     }
   }
+
 
   function updateRemotes(dt: number) {
     for (const [, r] of remotes) {
@@ -989,7 +1535,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const myCart = new THREE.Vector3();
   function updateCartCollisions(dt: number) {
     hitCooldown = Math.max(0, hitCooldown - dt);
-    myCart.copy(cartAnchor.position);
+    myCart.copy(cart.group.position);
     for (const [, r] of remotes) {
       const ry = r.group.rotation.y;
       remoteCart.set(r.group.position.x + Math.sin(ry) * 0.75, 0, r.group.position.z + Math.cos(ry) * 0.75);
@@ -997,9 +1543,26 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const dz = myCart.z - remoteCart.z;
       const d = Math.hypot(dx, dz);
       const minD = CART_R * 2;
-      if (d > minD || d < 1e-4) continue;
+      const bodyD = Math.hypot(myCart.x - r.group.position.x, myCart.z - r.group.position.z);
+
+      if (!cartAttached && (d < minD || bodyD < CART_R + 0.45)) {
+        // someone ran into my parked cart — direction decides how far it rolls
+        const ox = d < minD ? dx : myCart.x - r.group.position.x;
+        const oz = d < minD ? dz : myCart.z - r.group.position.z;
+        const len = Math.hypot(ox, oz) || 1;
+        const fromDir = new THREE.Vector3(ox / len, 0, oz / len);
+        pushCart(fromDir.clone().multiplyScalar(2.2), fromDir);
+        if (hitCooldown === 0) {
+          hitCooldown = 0.35;
+          burstSparks(new THREE.Vector3(myCart.x, 0.72, myCart.z));
+          dink();
+        }
+        continue;
+      }
+
+      if (!cartAttached || d > minD || d < 1e-4) continue;
       // push the player (and their cart) out of the other cart
-      const push = (minD - d) + 0.02;
+      const push = minD - d + 0.02;
       player.pos.x += (dx / d) * push;
       player.pos.z += (dz / d) * push;
       player.vel.multiplyScalar(0.2);
@@ -1013,6 +1576,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       break;
     }
   }
+
 
   function resize() {
     const w = canvas.clientWidth || window.innerWidth;
@@ -1034,8 +1598,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     if (locked) move(dt);
     else camera.position.set(player.pos.x, 1.68, player.pos.z);
     updateCart(dt);
+    updateCarried(dt);
+    updateFridgeDoors(dt);
     updateCartCollisions(dt);
     if (frame % 2 === 0) updatePrompt();
+
+
     updateRemotes(dt);
     updateSparks(dt);
     kioskLight.intensity = 8 + Math.sin(t * 2) * 2;
@@ -1068,7 +1636,20 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     clearCart: () => {
       cartItems.forEach((m) => cart.group.remove(m));
       cartItems.length = 0;
+      if (carried) {
+        scene.remove(carried.mesh);
+        carried = null;
+      }
+      projectiles.forEach((p) => scene.remove(p.mesh));
+      projectiles.length = 0;
+      cartAttached = true;
+      cartVel.set(0, 0, 0);
+      cart.group.position.set(player.pos.x, 0, player.pos.z);
+      notifyCartMode();
     },
+    removeItem: (id: string) => removeFromCart(id),
+    getCartIds: () => cartItems.map((m) => m.userData['productId'] as string),
+
     dispose: () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKeyDown);
