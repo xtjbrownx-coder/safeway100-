@@ -229,7 +229,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const key = new THREE.DirectionalLight("#fff6ea", 0.75);
   key.position.set(14, 20, 16);
   key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.mapSize.set(1024, 1024);
   key.shadow.camera.left = -32;
   key.shadow.camera.right = 32;
   key.shadow.camera.top = 28;
