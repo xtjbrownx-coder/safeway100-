@@ -1054,13 +1054,20 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   let locked = false;
   const onKeyDown = (e: KeyboardEvent) => {
     keys.add(e.code);
-    if (e.code === "KeyE" && locked) interact();
+    if (!locked) return;
+    if (e.code === "KeyE") interact();
+    if (e.code === "KeyF") toggleCartHold();
+    if (e.code === "KeyQ") throwCarried();
   };
   const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
   const onMouseMove = (e: MouseEvent) => {
     if (!locked) return;
     player.yaw -= e.movementX * 0.0021;
     player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * 0.0021, -1.35, 1.2);
+  };
+  const onMouseDown = (e: MouseEvent) => {
+    if (!locked || e.button !== 0) return;
+    throwCarried();
   };
   const onLock = () => {
     locked = document.pointerLockElement === canvas;
@@ -1069,29 +1076,128 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
   document.addEventListener("mousemove", onMouseMove);
+  document.addEventListener("mousedown", onMouseDown);
   document.addEventListener("pointerlockchange", onLock);
 
   const raycaster = new THREE.Raycaster();
   raycaster.far = 3.4;
   let target: THREE.Mesh | null = null;
+  let doorTarget: number | null = null;
+  let stealTarget: string | null = null;
   let atKiosk = false;
 
+  function notifyCartMode() {
+    cb.onCartModeChange?.(cartAttached, carried?.id ?? null);
+  }
+
+  function toggleCartHold() {
+    if (!cartAttached) {
+      // must be next to the cart to grab it again
+      const d = Math.hypot(cart.group.position.x - player.pos.x, cart.group.position.z - player.pos.z);
+      if (d > 1.9) {
+        cb.onPrompt("Walk back to your cart to grab it  [F]");
+        lastPrompt = "grab";
+        return;
+      }
+      cartAttached = true;
+      cartVel.set(0, 0, 0);
+      tone(300, 0.16, "square", 0.09, 1.4);
+    } else {
+      cartAttached = false;
+      cartVel.set(0, 0, 0);
+      tone(210, 0.18, "square", 0.09, 0.8);
+    }
+    notifyCartMode();
+  }
+
+  function dropCarriedIntoCart() {
+    if (!carried) return;
+    scene.remove(carried.mesh);
+    addToCart(carried.id);
+    cb.onPickup(carried.id);
+    tone(520, 0.12, "sine", 0.1, 1.6);
+    carried = null;
+    notifyCartMode();
+  }
+
+  function throwCarried() {
+    if (!carried) return;
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const mesh = carried.mesh;
+    scene.add(mesh);
+    mesh.position.copy(camera.position).add(dir.clone().multiplyScalar(0.5));
+    projectiles.push({
+      mesh,
+      id: carried.id,
+      vel: dir.multiplyScalar(9.5).add(new THREE.Vector3(0, 2.4, 0)),
+    });
+    carried = null;
+    tone(420, 0.1, "triangle", 0.07, 0.7);
+    notifyCartMode();
+  }
+
+  function takeProduct(mesh: THREE.Mesh) {
+    const id = mesh.userData['productId'] as string;
+    const i = products.indexOf(mesh);
+    if (i >= 0) products.splice(i, 1);
+    if (cartAttached) {
+      scene.remove(mesh);
+      addToCart(id);
+      cb.onPickup(id);
+    } else {
+      if (carried) {
+        cb.onPrompt("Hands full — stash this in your cart first");
+        lastPrompt = "full";
+        products.push(mesh);
+        return;
+      }
+      mesh.matrixAutoUpdate = true;
+      carried = { id, mesh };
+      notifyCartMode();
+    }
+    target = null;
+  }
+
   function interact() {
+    if (doorTarget !== null) {
+      toggleFridge(doorTarget);
+      return;
+    }
+    if (stealTarget) {
+      const victim = remotes.get(stealTarget);
+      if (victim && victim.cart.length) {
+        const id = victim.cart[Math.floor(Math.random() * victim.cart.length)]!;
+        cb.onSteal?.(stealTarget, id);
+        if (cartAttached) {
+          addToCart(id);
+          cb.onPickup(id);
+        } else if (!carried) {
+          const mesh = meshFor(byId(id));
+          mesh.userData['productId'] = id;
+          scene.add(mesh);
+          carried = { id, mesh };
+          notifyCartMode();
+        }
+        tone(880, 0.13, "square", 0.1, 1.5);
+      }
+      return;
+    }
+    if (!cartAttached && carried) {
+      const d = Math.hypot(cart.group.position.x - player.pos.x, cart.group.position.z - player.pos.z);
+      if (d < 1.8) {
+        dropCarriedIntoCart();
+        return;
+      }
+    }
     if (atKiosk) {
       document.exitPointerLock();
       cb.onCheckout();
       return;
     }
-    if (target) {
-      const id = target.userData['productId'] as string;
-      scene.remove(target);
-      const i = products.indexOf(target);
-      if (i >= 0) products.splice(i, 1);
-      target = null;
-      addToCart(id);
-      cb.onPickup(id);
-    }
+    if (target) takeProduct(target);
   }
+
 
   // ---------- loop ----------
   const clock = new THREE.Clock();
