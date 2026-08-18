@@ -1236,15 +1236,30 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const mesh = carried.mesh;
     scene.add(mesh);
     mesh.position.copy(camera.position).add(dir.clone().multiplyScalar(0.5));
+    mesh.geometry.computeBoundingSphere();
+    const radius = mesh.geometry.boundingSphere?.radius ?? 0.14;
+    const shape = byId(carried.id).shape;
+    const rest = shape === "can" || shape === "bottle" ? 0.34 : shape === "bag" ? 0.12 : 0.24;
     projectiles.push({
       mesh,
       id: carried.id,
       vel: dir.multiplyScalar(9.5).add(new THREE.Vector3(0, 2.4, 0)),
+      // tumble: random torque, mostly end-over-end around the throw's lateral axis
+      spin: new THREE.Vector3(
+        (Math.random() - 0.5) * 6 + 7,
+        (Math.random() - 0.5) * 5,
+        (Math.random() - 0.5) * 6,
+      ),
+      radius,
+      rest,
+      settled: 0,
+      life: 0,
     });
     carried = null;
     tone(420, 0.1, "triangle", 0.07, 0.7);
     notifyCartMode();
   }
+
 
   function takeProduct(mesh: THREE.Mesh) {
     const id = mesh.userData['productId'] as string;
