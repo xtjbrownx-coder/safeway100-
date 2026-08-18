@@ -706,6 +706,29 @@ function Index() {
               </ol>
             </div>
 
+            <div className="mt-3 rounded-xl border border-amber-300/25 bg-amber-300/5 p-3">
+              <p className="text-[10px] uppercase tracking-[0.2em] text-amber-200">
+                Hall of fame · {name.trim() || "Shopper"} beat the game — recorded forever
+              </p>
+              <ul className="mt-1.5 max-h-24 space-y-0.5 overflow-y-auto pr-1 text-[11px]">
+                {hall.map((h, i) => (
+                  <li key={`${h.name}-${h.created_at}-${i}`} className="flex justify-between gap-2">
+                    <span className="text-slate-200">{h.name}</span>
+                    <span className="font-mono text-slate-400">
+                      {h.score} pts · {fmt(h.total_seconds)} ·{" "}
+                      {new Date(h.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
+              {NEXT_UPDATE}
+            </p>
+
+
+
             <button
               onClick={startRun}
               className="mt-6 w-full rounded-lg bg-emerald-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-emerald-300"
