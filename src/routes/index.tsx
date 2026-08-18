@@ -165,6 +165,8 @@ function Index() {
       setFinalTime(seconds);
       setPhase("finish");
       const avg = Math.round([...accuracies, score].reduce((s, v) => s + v, 0) / TOTAL_LEVELS);
+      setFinalAccuracy(avg);
+      setFinalScore(computeScore(seconds, avg));
       void (async () => {
         await submitRun({ name: name.trim() || "Shopper", total_seconds: seconds, accuracy: avg });
         await refreshBoard();
@@ -188,7 +190,11 @@ function Index() {
   const timeStr = fmt(seconds);
   const done = list.filter((e) => (counts.get(e.id) ?? 0) >= e.qty).length;
   const best = board[0];
-  const rank = board.findIndex((b) => b.total_seconds >= finalTime) + 1;
+  const rank = (board.filter((b) => b.score > finalScore).length || 0) + 1;
+  const liveScore = computeScore(
+    seconds,
+    accuracies.length ? accuracies.reduce((s, v) => s + v, 0) / accuracies.length : 100,
+  );
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950">
