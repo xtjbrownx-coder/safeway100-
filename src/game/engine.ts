@@ -12,6 +12,8 @@ export type RemotePlayer = {
   cart?: string[];
 };
 
+export type QualityMode = "smooth" | "ultra" | "auto";
+
 export type GameCallbacks = {
   onPrompt: (text: string | null) => void;
   onPickup: (id: string) => void;
