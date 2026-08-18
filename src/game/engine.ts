@@ -158,34 +158,60 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const [c, g] = makeCanvas(512, 512);
     g.fillStyle = "#e9e7e2";
     g.fillRect(0, 0, 512, 512);
+    // terrazzo speckle
     for (let i = 0; i < 26000; i++) {
-      const v = 200 + Math.random() * 55;
-      g.fillStyle = `rgba(${v},${v - 3},${v - 10},${Math.random() * 0.35})`;
+      const v = 195 + Math.random() * 60;
+      g.fillStyle = `rgba(${v},${v - 3},${v - 10},${Math.random() * 0.4})`;
       g.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
     }
-    // polished tile seams
-    g.strokeStyle = "rgba(150,152,155,0.55)";
-    g.lineWidth = 2;
-    g.strokeRect(1, 1, 510, 510);
-    return toTex(c, [W / 1.5, D / 1.5]);
+    for (let i = 0; i < 700; i++) {
+      const r = 2 + Math.random() * 5;
+      g.fillStyle = `rgba(${120 + Math.random() * 90},${118 + Math.random() * 90},${115 + Math.random() * 90},0.32)`;
+      g.beginPath();
+      g.arc(Math.random() * 512, Math.random() * 512, r, 0, Math.PI * 2);
+      g.fill();
+    }
+    // visible grid: 2x2 tiles per texture repeat, deep grout + highlight bevel
+    const grout = (x: number, y: number, w: number, h: number) => {
+      g.fillStyle = "rgba(96,101,108,0.85)";
+      g.fillRect(x, y, w, h);
+      g.fillStyle = "rgba(255,255,255,0.45)";
+      g.fillRect(x + w, y, Math.max(1, w * 0.4), h);
+      g.fillRect(x, y + h, w, Math.max(1, h * 0.4));
+    };
+    for (const p of [0, 256]) {
+      grout(p, 0, 5, 512);
+      grout(0, p, 512, 5);
+    }
+    grout(507, 0, 5, 512);
+    grout(0, 507, 512, 5);
+    return toTex(c, [W / 3, D / 3]);
   })();
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(W, D),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.16, metalness: 0.02, envMapIntensity: 1.2 }),
+    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.14, metalness: 0.04, envMapIntensity: 1.5 }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
   // polished-concrete walkway strips between runs
-  const walkMat = new THREE.MeshStandardMaterial({ color: "#dfe3e6", roughness: 0.1, metalness: 0.05 });
+  const walkMat = new THREE.MeshStandardMaterial({
+    color: "#dfe3e6",
+    roughness: 0.08,
+    metalness: 0.08,
+    envMapIntensity: 1.6,
+    transparent: true,
+    opacity: 0.85,
+  });
   for (let i = 0; i < RUN_X.length - 1; i++) {
     const strip = new THREE.Mesh(new THREE.PlaneGeometry(2.2, RUN_LEN + 4), walkMat);
     strip.rotation.x = -Math.PI / 2;
-    strip.position.set((RUN_X[i]! + RUN_X[i + 1]!) / 2, 0.005, (RUN_Z0 + RUN_Z1) / 2);
+    strip.position.set((RUN_X[i]! + RUN_X[i + 1]!) / 2, 0.006, (RUN_Z0 + RUN_Z1) / 2);
     scene.add(strip);
   }
+
 
   // ---------- ceiling + structure ----------
   const ceiling = new THREE.Mesh(
