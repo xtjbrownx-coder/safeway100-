@@ -862,7 +862,10 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     rest: number;
     settled: number;
     life: number;
+    /** cylindrical / round items roll instead of flopping flat */
+    roll: boolean;
   };
+
   const projectiles: Projectile[] = [];
 
   const RIM_Y = 0.95;
