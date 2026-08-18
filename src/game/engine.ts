@@ -12,6 +12,8 @@ export type RemotePlayer = {
   cart?: string[];
 };
 
+export type QualityMode = "smooth" | "ultra" | "auto";
+
 export type GameCallbacks = {
   onPrompt: (text: string | null) => void;
   onPickup: (id: string) => void;
@@ -20,7 +22,7 @@ export type GameCallbacks = {
   onMove?: (x: number, z: number, yaw: number) => void;
   onSteal?: (victimId: string, productId: string) => void;
   onCartModeChange?: (attached: boolean, carrying: string | null) => void;
-  onPerf?: (p: { fps: number; scale: number; quality: "smooth" | "ultra" }) => void;
+  onPerf?: (p: { fps: number; scale: number; quality: "smooth" | "ultra"; mode: QualityMode; target: number }) => void;
 
 };
 
@@ -177,6 +179,77 @@ function tone(freq: number, dur: number, type: OscillatorType, vol: number, slid
 function thunk(open: boolean) {
   tone(open ? 240 : 150, 0.22, "sine", 0.16, open ? 1.35 : 0.7);
 }
+
+// short metallic click for the door latch / handle
+function latchClick(open: boolean) {
+  tone(open ? 1350 : 900, 0.05, "square", 0.04, open ? 0.6 : 0.5);
+}
+
+// gasket suction as the seal peels off / re-seats
+function gasket(open: boolean) {
+  tone(open ? 90 : 120, 0.3, "sawtooth", 0.035, open ? 1.6 : 0.55);
+}
+
+// looping cooler ambience while a door hangs open
+type Ambience = { stop: () => void };
+function coolerAmbience(kind: "dairy" | "meat"): Ambience | null {
+  try {
+    const ctx = audio();
+    if (!ctx) return null;
+    const t0 = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t0);
+    out.gain.exponentialRampToValueAtTime(kind === "meat" ? 0.05 : 0.035, t0 + 0.5);
+    out.connect(ctx.destination);
+
+    // compressor hum
+    const hum = ctx.createOscillator();
+    hum.type = "sawtooth";
+    hum.frequency.setValueAtTime(kind === "meat" ? 58 : 92, t0);
+    const humFilter = ctx.createBiquadFilter();
+    humFilter.type = "lowpass";
+    humFilter.frequency.setValueAtTime(kind === "meat" ? 220 : 420, t0);
+    const humGain = ctx.createGain();
+    humGain.gain.setValueAtTime(0.6, t0);
+    hum.connect(humFilter).connect(humGain).connect(out);
+    hum.start(t0);
+
+    // cold-air hiss spilling out of the open case
+    const len = Math.floor(ctx.sampleRate * 2);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+    const air = ctx.createBiquadFilter();
+    air.type = "bandpass";
+    air.frequency.setValueAtTime(kind === "meat" ? 1100 : 1700, t0);
+    air.Q.setValueAtTime(0.7, t0);
+    const airGain = ctx.createGain();
+    airGain.gain.setValueAtTime(0.25, t0);
+    noise.connect(air).connect(airGain).connect(out);
+    noise.start(t0);
+
+    return {
+      stop: () => {
+        try {
+          const t1 = ctx.currentTime;
+          out.gain.cancelScheduledValues(t1);
+          out.gain.setValueAtTime(Math.max(0.0001, out.gain.value), t1);
+          out.gain.exponentialRampToValueAtTime(0.0001, t1 + 0.45);
+          hum.stop(t1 + 0.5);
+          noise.stop(t1 + 0.5);
+        } catch {
+          /* ignore */
+        }
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 
 // ---------------------------------------------------------------- game
 export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
@@ -629,7 +702,22 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   }
 
   // ---------- refrigerated cases (openable glass doors) ----------
-  type FridgeDoor = { pivot: THREE.Group; panel: THREE.Mesh; open: boolean; angle: number; stock: THREE.Mesh[] };
+  type FridgeDoor = {
+    pivot: THREE.Group;
+    panel: THREE.Mesh;
+    open: boolean;
+    angle: number;
+    vel: number;
+    latch: number;
+    facing: 1 | -1;
+    handle: THREE.Mesh;
+    handleX: number;
+    kind: "dairy" | "meat";
+    amb: Ambience | null;
+    closedSfx: boolean;
+    stock: THREE.Mesh[];
+  };
+
   const fridgeDoors: FridgeDoor[] = [];
   const doorPanels: THREE.Mesh[] = [];
 
@@ -742,7 +830,21 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       handle.position.set(facing * 0.07, 0, (facing * (UW - 0.06)) / 2 + facing * ((UW - 0.06) / 2 - 0.12));
       pivot.add(handle);
 
-      fridgeDoors.push({ pivot, panel, open: false, angle: 0, stock });
+      fridgeDoors.push({
+        pivot,
+        panel,
+        open: false,
+        angle: 0,
+        vel: 0,
+        latch: 0,
+        facing,
+        handle,
+        handleX: handle.position.x,
+        kind: aisle === "Meat" ? "meat" : "dairy",
+        amb: null,
+        closedSfx: true,
+        stock,
+      });
     }
   }
 
@@ -752,8 +854,34 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   function updateFridgeDoors(dt: number) {
     for (const d of fridgeDoors) {
       const wanted = d.open ? 1 : 0;
-      if (Math.abs(d.angle - wanted) < 0.001) continue;
-      d.angle += (wanted - d.angle) * Math.min(1, dt * 7);
+
+      // handle: pulls out and rotates before the hinge starts to move
+      const latchTarget = d.open ? 1 : 0;
+      const latchSpeed = d.open ? 16 : 24;
+      if (Math.abs(d.latch - latchTarget) > 0.001) {
+        d.latch += (latchTarget - d.latch) * Math.min(1, dt * latchSpeed);
+        d.handle.position.x = d.handleX + d.facing * 0.045 * d.latch;
+        d.handle.rotation.z = -0.28 * d.latch;
+      }
+
+      if (Math.abs(d.angle - wanted) < 0.0015 && Math.abs(d.vel) < 0.002) {
+        if (!d.open && !d.closedSfx) {
+          d.closedSfx = true;
+          thunk(false);
+          latchClick(false);
+        }
+        d.angle = wanted;
+        d.vel = 0;
+        d.pivot.rotation.y = -d.angle * 1.9;
+        continue;
+      }
+
+      // heavy gasketed door: slow to break the seal, quick mid-swing, damped settle
+      const gate = d.open ? Math.min(1, d.latch / 0.4) : 1;
+      const k = d.open ? 22 : 30;
+      const c = d.open ? 8.4 : 10.5;
+      d.vel += ((wanted - d.angle) * k * gate - d.vel * c) * dt;
+      d.angle = Math.max(0, Math.min(1.06, d.angle + d.vel * dt));
       d.pivot.rotation.y = -d.angle * 1.9;
     }
   }
@@ -764,14 +892,24 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     d.open = !d.open;
     if (d.open) {
       for (const m of d.stock) if (!products.includes(m)) products.push(m);
+      d.closedSfx = false;
+      latchClick(true);
+      gasket(true);
+      window.setTimeout(() => {
+        if (d.open) thunk(true);
+      }, 130);
+      d.amb ??= coolerAmbience(d.kind);
     } else {
       for (const m of d.stock) {
         const i = products.indexOf(m);
         if (i >= 0) products.splice(i, 1);
       }
+      gasket(false);
+      d.amb?.stop();
+      d.amb = null;
     }
-    thunk(d.open);
   }
+
 
 
   // ---------- checkout front end ----------
@@ -1953,8 +2091,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   // adaptive resolution: keep the frame rate high on weaker GPUs
   let perfAcc = 0;
   let perfFrames = 0;
+  let mode: QualityMode = "ultra";
   let quality: "smooth" | "ultra" = "ultra";
-  function setQuality(q: "smooth" | "ultra") {
+  let targetFps = 60;
+  let autoHold = 0;
+
+  function applyQuality(q: "smooth" | "ultra") {
     if (q === quality) return;
     quality = q;
     renderer.shadowMap.enabled = true;
@@ -1969,6 +2111,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     renderer.setPixelRatio(renderScale);
     resize();
   }
+
+  function setQuality(q: QualityMode) {
+    mode = q;
+    autoHold = 0;
+    applyQuality(q === "smooth" ? "smooth" : "ultra");
+  }
+
+  function setTargetFps(fps: number) {
+    targetFps = Math.max(30, Math.min(144, Math.round(fps)));
+  }
+
   function qualityMax() {
     const area = Math.max(1, canvas.clientWidth * canvas.clientHeight);
     const budget = Math.sqrt((quality === "ultra" ? 3_200_000 : 1_600_000) / area);
@@ -1983,16 +2136,25 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const fps = perfFrames / perfAcc;
     perfAcc = 0;
     perfFrames = 0;
-    cb.onPerf?.({ fps: Math.round(fps), scale: Math.round(renderScale * 100) / 100, quality });
+    cb.onPerf?.({
+      fps: Math.round(fps),
+      scale: Math.round(renderScale * 100) / 100,
+      quality,
+      mode,
+      target: targetFps,
+    });
 
     // never go below native-ish sharpness; antialiasing keeps edges clean
     const min = quality === "ultra" ? Math.max(0.9, Math.min(devicePixelRatio, 1)) : 0.75;
     // cap total rendered pixels so big windows stay smooth (tighter on Smooth)
     const max = Math.max(min, qualityMax());
 
+    const low = targetFps * 0.9;
+    const high = targetFps * 1.02;
+
     let next = renderScale;
-    if (fps < 50) next = Math.max(min, renderScale - 0.25);
-    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.15);
+    if (fps < low) next = Math.max(min, renderScale - 0.25);
+    else if (fps > high && renderScale < max) next = Math.min(max, renderScale + 0.15);
     next = Math.min(next, max);
 
     if (Math.abs(next - renderScale) > 0.01) {
@@ -2000,7 +2162,20 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       renderer.setPixelRatio(renderScale);
       resize();
     }
+
+    // Auto: once resolution alone can't hit the target, trade Ultra effects for frames
+    if (mode === "auto") {
+      autoHold += 0.6;
+      if (quality === "ultra" && fps < low && next <= min + 0.01 && autoHold > 2.4) {
+        applyQuality("smooth");
+        autoHold = 0;
+      } else if (quality === "smooth" && fps > targetFps * 1.2 && autoHold > 6) {
+        applyQuality("ultra");
+        autoHold = 0;
+      }
+    }
   }
+
 
 
   function tick() {
@@ -2038,6 +2213,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     setRemotePlayers,
     setLeaderboard: (entries: { name: string; total_seconds: number; score: number }[]) => drawBoard(entries),
     setQuality,
+    setTargetFps,
     setShoppingList: (
       entries: { id: string; name: string; qty: number; aisle: string; unit?: string }[],
       level?: number,
@@ -2082,6 +2258,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("pointerlockchange", onLock);
       window.removeEventListener("resize", resize);
+      for (const d of fridgeDoors) d.amb?.stop();
       renderer.dispose();
       pmrem.dispose();
       scene.traverse((o) => {

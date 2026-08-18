@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CATALOG, byId, realisticQty, unitLabel } from "@/game/catalog";
-import type { Game, RemotePlayer } from "@/game/engine";
+import type { Game, QualityMode, RemotePlayer } from "@/game/engine";
 import { PLAYER_COLORS, type Presence, type StoreConnection } from "@/game/multiplayer";
 import {
   levelPoints,
@@ -76,13 +76,21 @@ function Index() {
   const [finalTime, setFinalTime] = useState(0);
   const [finalScore, setFinalScore] = useState(0);
   const [finalAccuracy, setFinalAccuracy] = useState(0);
-  const [quality, setQuality] = useState<"smooth" | "ultra">("ultra");
-  const [perf, setPerf] = useState<{ fps: number; scale: number; quality: "smooth" | "ultra" } | null>(null);
+  const [quality, setQuality] = useState<QualityMode>("ultra");
+  const [targetFps, setTargetFps] = useState(60);
+  const [perf, setPerf] = useState<{
+    fps: number;
+    scale: number;
+    quality: "smooth" | "ultra";
+    mode: QualityMode;
+    target: number;
+  } | null>(null);
 
   const [cartHeld, setCartHeld] = useState(true);
   const [carrying, setCarrying] = useState<string | null>(null);
   const listRef = useRef<ListEntry[]>([]);
-  const qualityRef = useRef<"smooth" | "ultra">("ultra");
+  const qualityRef = useRef<QualityMode>("ultra");
+  const targetRef = useRef(60);
 
   const [publicCount, setPublicCount] = useState(0);
   const [privateCount, setPrivateCount] = useState(0);
@@ -179,6 +187,7 @@ function Index() {
         })),
       );
       game.setQuality(qualityRef.current);
+      game.setTargetFps(targetRef.current);
       void refreshBoard();
 
     })();
@@ -192,6 +201,12 @@ function Index() {
     qualityRef.current = quality;
     gameRef.current?.setQuality(quality);
   }, [quality]);
+
+  useEffect(() => {
+    targetRef.current = targetFps;
+    gameRef.current?.setTargetFps(targetFps);
+  }, [targetFps]);
+
 
   useEffect(() => {
     if (!running) return;
@@ -350,16 +365,22 @@ function Index() {
         <div className="pointer-events-none absolute right-4 top-4 z-20 rounded-md border border-white/10 bg-slate-950/70 px-2.5 py-1.5 font-mono text-[11px] leading-tight text-slate-200 shadow-lg backdrop-blur-md">
           <span
             className={
-              perf.fps >= 55 ? "text-emerald-300" : perf.fps >= 35 ? "text-amber-300" : "text-rose-400"
+              perf.fps >= perf.target * 0.9
+                ? "text-emerald-300"
+                : perf.fps >= perf.target * 0.6
+                  ? "text-amber-300"
+                  : "text-rose-400"
             }
           >
             {perf.fps} FPS
           </span>
           <span className="ml-2 text-slate-400">
-            {perf.quality === "ultra" ? "Ultra" : "Smooth"} · {perf.scale.toFixed(2)}x
+            {perf.mode === "auto" ? `Auto→${perf.quality === "ultra" ? "Ultra" : "Smooth"}` : perf.quality === "ultra" ? "Ultra" : "Smooth"} ·{" "}
+            {perf.scale.toFixed(2)}x · target {perf.target}
           </span>
         </div>
       )}
+
 
 
 
@@ -537,8 +558,8 @@ function Index() {
 
             <div className="mt-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Graphics quality</p>
-              <div className="mt-1 grid grid-cols-2 gap-2">
-                {(["smooth", "ultra"] as const).map((q) => (
+              <div className="mt-1 grid grid-cols-3 gap-2">
+                {(["smooth", "ultra", "auto"] as const).map((q) => (
                   <button
                     key={q}
                     onClick={() => setQuality(q)}
@@ -548,14 +569,39 @@ function Index() {
                         : "border-white/10 bg-slate-800/50 text-slate-300 hover:bg-slate-800"
                     }`}
                   >
-                    <span className="block font-semibold">{q === "smooth" ? "Smooth" : "Ultra realistic"}</span>
+                    <span className="block font-semibold">
+                      {q === "smooth" ? "Smooth" : q === "ultra" ? "Ultra realistic" : "Auto"}
+                    </span>
                     <span className="text-[11px] text-slate-400">
-                      {q === "smooth" ? "Lighter resolution + shadows" : "Full supersampling + soft shadows"}
+                      {q === "smooth"
+                        ? "Lighter resolution + shadows"
+                        : q === "ultra"
+                          ? "Full supersampling + soft shadows"
+                          : "Tunes Ultra to hit your FPS target"}
                     </span>
                   </button>
                 ))}
               </div>
+              {quality === "auto" && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Target FPS</span>
+                  {[30, 60, 90, 120].map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setTargetFps(f)}
+                      className={`rounded-md border px-2 py-1 font-mono text-[11px] transition ${
+                        targetFps === f
+                          ? "border-emerald-400/70 bg-emerald-400/10 text-emerald-200"
+                          : "border-white/10 bg-slate-800/50 text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              )}
               <p className="mt-1 text-[10px] text-slate-500">Visuals only — levels, lists and scoring never change.</p>
+
             </div>
 
             <button
