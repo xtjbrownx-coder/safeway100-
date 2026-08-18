@@ -1689,22 +1689,46 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   let netAcc = 0;
   let frame = 0;
+  // adaptive resolution: keep the frame rate high on weaker GPUs
+  let perfAcc = 0;
+  let perfFrames = 0;
+  function adaptResolution(dt: number) {
+    perfAcc += dt;
+    perfFrames++;
+    if (perfAcc < 1) return;
+    const fps = perfFrames / perfAcc;
+    perfAcc = 0;
+    perfFrames = 0;
+    const min = 0.6;
+    const max = Math.min(devicePixelRatio, 1.25);
+    let next = renderScale;
+    if (fps < 50) next = Math.max(min, renderScale - 0.15);
+    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.1);
+    if (Math.abs(next - renderScale) > 0.01) {
+      renderScale = next;
+      renderer.setPixelRatio(renderScale);
+      resize();
+    }
+  }
+
   function tick() {
     raf = requestAnimationFrame(tick);
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
     frame++;
+    adaptResolution(dt);
     if (locked) move(dt);
     else camera.position.set(player.pos.x, 1.68, player.pos.z);
     updateCart(dt);
     updateCarried(dt);
     updateFridgeDoors(dt);
     updateCartCollisions(dt);
-    if (frame % 2 === 0) updatePrompt();
+    if (frame % 3 === 0) updatePrompt();
 
 
     updateRemotes(dt);
     updateSparks(dt);
+
     kioskLight.intensity = 8 + Math.sin(t * 2) * 2;
     netAcc += dt;
     if (netAcc > 0.1) {
