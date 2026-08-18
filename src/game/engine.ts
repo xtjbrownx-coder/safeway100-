@@ -250,17 +250,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       strip.position.set(x + off, H - 0.75, (RUN_Z0 + RUN_Z1) / 2);
       scene.add(strip);
     }
-    if (i % 2 === 0) {
-      const pl = new THREE.PointLight("#fff4e2", 12, 26, 2);
+    if (i === 2) {
+      const pl = new THREE.PointLight("#fff4e2", 16, 34, 2);
       pl.position.set(x, H - 1.6, (RUN_Z0 + RUN_Z1) / 2);
       scene.add(pl);
     }
   });
-  for (const z of [10, 16]) {
+  for (const z of [13]) {
     const strip = new THREE.Mesh(new THREE.BoxGeometry(W - 8, 0.1, 0.5), stripMat);
     strip.position.set(0, H - 0.75, z);
     scene.add(strip);
-    const pl = new THREE.PointLight("#fff4e2", 10, 30, 2);
+    const pl = new THREE.PointLight("#fff4e2", 12, 32, 2);
     pl.position.set(0, H - 1.6, z);
     scene.add(pl);
   }
