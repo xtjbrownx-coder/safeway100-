@@ -184,17 +184,20 @@ function Index() {
       setRunning(false);
       setFinalTime(seconds);
       setPhase("finish");
-      const avg = Math.round([...accuracies, score].reduce((s, v) => s + v, 0) / TOTAL_LEVELS);
+      const all = [...accuracies, score];
+      const avg = Math.round(all.reduce((s, v) => s + v, 0) / TOTAL_LEVELS);
+      const total = runScore(all);
       setFinalAccuracy(avg);
-      setFinalScore(computeScore(seconds, avg));
+      setFinalScore(total);
       void (async () => {
-        await submitRun({ name: name.trim() || "Shopper", total_seconds: seconds, accuracy: avg });
+        await submitRun({ name: name.trim() || "Shopper", total_seconds: seconds, accuracy: avg, score: total });
         await refreshBoard();
       })();
     } else {
       setPhase("receipt");
     }
   }, [result.score, level, seconds, accuracies, name, refreshBoard]);
+
 
   const nextLevel = useCallback(() => {
     const next = level + 1;
