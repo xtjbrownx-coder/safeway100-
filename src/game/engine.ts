@@ -31,10 +31,15 @@ function makeCanvas(w: number, h: number) {
   return [c, c.getContext("2d")!] as const;
 }
 
+let MAX_ANISO = 8;
+
 function toTex(c: HTMLCanvasElement, repeat?: [number, number]) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
+  t.anisotropy = MAX_ANISO;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
   if (repeat) {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(repeat[0], repeat[1]);
@@ -42,8 +47,11 @@ function toTex(c: HTMLCanvasElement, repeat?: [number, number]) {
   return t;
 }
 
+
 function labelTexture(p: ProductDef) {
-  const [c, g] = makeCanvas(256, 256);
+  const [c, g] = makeCanvas(512, 512);
+  g.scale(2, 2);
+
   g.fillStyle = p.color;
   g.fillRect(0, 0, 256, 256);
   // soft vertical sheen
@@ -170,13 +178,20 @@ function thunk(open: boolean) {
 
 // ---------------------------------------------------------------- game
 export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance", stencil: false });
-  let renderScale = Math.min(devicePixelRatio, 1);
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    powerPreference: "high-performance",
+    stencil: false,
+  });
+  MAX_ANISO = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+  let renderScale = Math.min(devicePixelRatio, 1.5);
   renderer.setPixelRatio(renderScale);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;
   renderer.shadowMap.needsUpdate = true;
+
 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -187,7 +202,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   scene.fog = new THREE.Fog("#cfd8e0", 40, 120);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.02).texture;
+  scene.environmentIntensity = 1.05;
+
 
   const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 220);
   const player = { pos: new THREE.Vector3(0, 1.68, 18), yaw: 0, pitch: -0.08, vel: new THREE.Vector3() };
@@ -265,11 +282,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   // ---------- ceiling + structure ----------
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(W, D),
-    new THREE.MeshStandardMaterial({ color: "#2a2f36", roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ color: "#464e58", roughness: 0.92, metalness: 0.05, envMapIntensity: 0.6 }),
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = H;
   scene.add(ceiling);
+
 
   const steel = new THREE.MeshPhysicalMaterial({ color: "#9aa3ac", roughness: 0.28, metalness: 0.9, envMapIntensity: 2.0, clearcoat: 0.6, clearcoatRoughness: 0.15 });
   for (let x = -W / 2 + 6; x <= W / 2 - 6; x += 8) {
@@ -304,7 +322,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const key = new THREE.DirectionalLight("#fff6ea", 0.75);
   key.position.set(14, 20, 16);
   key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.radius = 2;
+
   key.shadow.camera.left = -32;
   key.shadow.camera.right = 32;
   key.shadow.camera.top = 28;
@@ -833,7 +853,18 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   let cartAttached = true;
   const cartVel = new THREE.Vector3();
   let carried: { id: string; mesh: THREE.Mesh } | null = null;
-  const projectiles: { mesh: THREE.Mesh; id: string; vel: THREE.Vector3 }[] = [];
+  type Projectile = {
+    mesh: THREE.Mesh;
+    id: string;
+    vel: THREE.Vector3;
+    spin: THREE.Vector3;
+    radius: number;
+    rest: number;
+    settled: number;
+    life: number;
+  };
+  const projectiles: Projectile[] = [];
+
   const RIM_Y = 0.95;
 
   function layoutCart() {
@@ -1208,15 +1239,30 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const mesh = carried.mesh;
     scene.add(mesh);
     mesh.position.copy(camera.position).add(dir.clone().multiplyScalar(0.5));
+    mesh.geometry.computeBoundingSphere();
+    const radius = mesh.geometry.boundingSphere?.radius ?? 0.14;
+    const shape = byId(carried.id).shape;
+    const rest = shape === "can" || shape === "bottle" ? 0.34 : shape === "bag" ? 0.12 : 0.24;
     projectiles.push({
       mesh,
       id: carried.id,
       vel: dir.multiplyScalar(9.5).add(new THREE.Vector3(0, 2.4, 0)),
+      // tumble: random torque, mostly end-over-end around the throw's lateral axis
+      spin: new THREE.Vector3(
+        (Math.random() - 0.5) * 6 + 7,
+        (Math.random() - 0.5) * 5,
+        (Math.random() - 0.5) * 6,
+      ),
+      radius,
+      rest,
+      settled: 0,
+      life: 0,
     });
     carried = null;
     tone(420, 0.1, "triangle", 0.07, 0.7);
     notifyCartMode();
   }
+
 
   function takeProduct(mesh: THREE.Mesh) {
     const id = mesh.userData['productId'] as string;
@@ -1399,6 +1445,57 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     }
   }
 
+  // ---------- rigid-ish tumble helpers ----------
+  const spinQ = new THREE.Quaternion();
+  const spinAxis = new THREE.Vector3();
+  const cornerV = new THREE.Vector3();
+  const restAxes = [
+    new THREE.Vector3(1, 0, 0),
+    new THREE.Vector3(-1, 0, 0),
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(0, 0, 1),
+    new THREE.Vector3(0, 0, -1),
+  ];
+
+  /** World-space Y of the object's lowest oriented corner (floor is y = 0). */
+  function lowestPoint(m: THREE.Mesh) {
+    const g = m.geometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const bb = g.boundingBox!;
+    let min = Infinity;
+    for (let xi = 0; xi < 2; xi++)
+      for (let yi = 0; yi < 2; yi++)
+        for (let zi = 0; zi < 2; zi++) {
+          cornerV
+            .set(xi ? bb.max.x : bb.min.x, yi ? bb.max.y : bb.min.y, zi ? bb.max.z : bb.min.z)
+            .applyQuaternion(m.quaternion);
+          const y = m.position.y + cornerV.y;
+          if (y < min) min = y;
+        }
+    return min;
+  }
+
+  /** Rotate to the nearest face-down resting pose so items lie flat, never balanced. */
+  function snapToRest(m: THREE.Mesh) {
+    // find which local axis currently points most downward; that face becomes the bed
+    let bestAxis = restAxes[0]!;
+    let bestDot = -Infinity;
+    for (const a of restAxes) {
+      const d = cornerV.copy(a).applyQuaternion(m.quaternion).y;
+      if (-d > bestDot) {
+        bestDot = -d;
+        bestAxis = a;
+      }
+    }
+    const from = cornerV.copy(bestAxis).applyQuaternion(m.quaternion).normalize();
+    const align = new THREE.Quaternion().setFromUnitVectors(from, new THREE.Vector3(0, -1, 0));
+    m.quaternion.premultiply(align).normalize();
+    // keep a natural random heading around the vertical
+    m.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI * 2);
+  }
+
+
   function updateCarried(dt: number) {
     shelfHitCooldown = Math.max(0, shelfHitCooldown - dt);
     if (carried) {
@@ -1415,40 +1512,81 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const pr = projectiles[i]!;
-      pr.vel.y -= 12 * dt;
-      pr.mesh.position.addScaledVector(pr.vel, dt);
-      pr.mesh.rotation.x += dt * 6;
-      pr.mesh.rotation.z += dt * 4;
+      const m = pr.mesh;
+      pr.life += dt;
 
+      // ---- integrate linear + angular motion
+      pr.vel.y -= 16 * dt;
+      m.position.addScaledVector(pr.vel, dt);
+      const w = pr.spin;
+      const wl = w.length();
+      if (wl > 1e-4) {
+        spinQ.setFromAxisAngle(spinAxis.copy(w).divideScalar(wl), wl * dt);
+        m.quaternion.premultiply(spinQ).normalize();
+      }
+
+      // ---- cart basket capture (top half only)
       const cp = cart.group.position;
-      const inXZ = Math.hypot(pr.mesh.position.x - cp.x, pr.mesh.position.z - cp.z) < 0.44;
-      // must drop in through the TOP half of the basket
-      if (inXZ && pr.vel.y < 0 && pr.mesh.position.y < RIM_Y + 0.1 && pr.mesh.position.y > RIM_Y - 0.35) {
-        scene.remove(pr.mesh);
+      const inXZ = Math.hypot(m.position.x - cp.x, m.position.z - cp.z) < 0.44;
+      if (inXZ && pr.vel.y < 0 && m.position.y < RIM_Y + 0.1 && m.position.y > RIM_Y - 0.35) {
+        scene.remove(m);
         projectiles.splice(i, 1);
         addToCart(pr.id);
         cb.onPickup(pr.id);
         tone(760, 0.14, "sine", 0.12, 1.7);
         continue;
       }
-      if (inXZ && pr.mesh.position.y < RIM_Y - 0.35 && pr.mesh.position.y > 0.25) {
+      if (inXZ && m.position.y < RIM_Y - 0.35 && m.position.y > 0.25) {
         // clanged off the side of the basket
         pr.vel.multiplyScalar(-0.35);
+        pr.spin.multiplyScalar(-0.6).addScalar((Math.random() - 0.5) * 3);
         dink();
       }
-      if (pr.mesh.position.y <= 0.11) {
-        pr.mesh.position.y = 0.11;
-        scene.remove(pr.mesh);
+
+      // ---- floor contact using the real oriented footprint
+      const drop = lowestPoint(m);
+      if (drop < 0.005) {
+        m.position.y += -drop;
+        const impact = -pr.vel.y;
+        if (impact > 0.6) {
+          // bounce, bleed energy, and convert some of it into tumble
+          pr.vel.y = impact * pr.rest;
+          pr.vel.x *= 0.62;
+          pr.vel.z *= 0.62;
+          const kick = Math.min(impact, 8) * 0.55;
+          pr.spin.set(
+            pr.spin.x * -0.35 + (Math.random() - 0.5) * kick,
+            pr.spin.y * 0.6 + (Math.random() - 0.5) * kick * 0.6,
+            pr.spin.z * -0.35 + (Math.random() - 0.5) * kick,
+          );
+          tone(120 + Math.random() * 60, 0.08, "sine", Math.min(0.09, 0.02 + impact * 0.01), 0.6);
+        } else {
+          // sliding / rocking to a halt
+          pr.vel.y = 0;
+          pr.vel.x *= 0.86;
+          pr.vel.z *= 0.86;
+          pr.spin.multiplyScalar(0.8);
+          pr.settled += dt;
+        }
+      } else {
+        pr.settled = 0;
+      }
+
+      // ---- come to rest lying on a flat face, like a real box
+      const still = pr.vel.lengthSq() < 0.05 && pr.spin.lengthSq() < 0.6;
+      if ((pr.settled > 0.35 && still) || pr.life > 12) {
+        snapToRest(m);
+        m.position.y += -lowestPoint(m);
+        scene.remove(m);
         projectiles.splice(i, 1);
-        const dropped = meshFor(byId(pr.id));
-        dropped.userData['productId'] = pr.id;
-        dropped.position.copy(pr.mesh.position);
-        scene.add(dropped);
-        products.push(dropped);
-        tone(160, 0.1, "sine", 0.06, 0.6);
+        m.userData['productId'] = pr.id;
+        scene.add(m);
+        products.push(m);
+        tone(150, 0.09, "sine", 0.05, 0.6);
       }
     }
   }
+
 
   let lastPrompt: string | null = null;
   const nearby: THREE.Mesh[] = [];
@@ -1695,21 +1833,23 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   function adaptResolution(dt: number) {
     perfAcc += dt;
     perfFrames++;
-    if (perfAcc < 1) return;
+    if (perfAcc < 1.25) return;
     const fps = perfFrames / perfAcc;
     perfAcc = 0;
     perfFrames = 0;
-    const min = 0.6;
-    const max = Math.min(devicePixelRatio, 1.25);
+    // never go below native-ish sharpness; antialiasing keeps edges clean
+    const min = Math.min(devicePixelRatio, 0.9);
+    const max = Math.min(devicePixelRatio, 2);
     let next = renderScale;
-    if (fps < 50) next = Math.max(min, renderScale - 0.15);
-    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.1);
+    if (fps < 45) next = Math.max(min, renderScale - 0.25);
+    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.25);
     if (Math.abs(next - renderScale) > 0.01) {
       renderScale = next;
       renderer.setPixelRatio(renderScale);
       resize();
     }
   }
+
 
   function tick() {
     raf = requestAnimationFrame(tick);
