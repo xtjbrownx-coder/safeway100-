@@ -213,6 +213,10 @@ function Index() {
               </span>
               <span className="font-mono text-[11px] text-amber-300">{timeStr}</span>
             </div>
+            <div className="mt-0.5 flex items-baseline justify-between">
+              <span className="text-[10px] uppercase tracking-[0.16em] text-slate-400">Projected score</span>
+              <span className="font-mono text-[11px] text-emerald-300">{liveScore} pts</span>
+            </div>
             <ul className="mt-1.5 space-y-0.5">
               {list.map((e) => {
                 const have = counts.get(e.id) ?? 0;
