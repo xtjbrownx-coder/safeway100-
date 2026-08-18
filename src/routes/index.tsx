@@ -351,10 +351,11 @@ function Index() {
             <p className="text-[11px] uppercase tracking-[0.3em] text-emerald-300">10-level speedrun</p>
             <h2 className="mt-1 text-3xl font-semibold">Cart &amp; Aisle</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
-              Ten shopping levels, one stopwatch. Grab the exact items on each list and scan them at self-checkout. You
-              earn points for accuracy (50 per percent) plus a speed bonus (2 per second saved) — the highest score
-              tops the world leaderboard at the back of the store.
+              Ten shopping levels, one stopwatch. Grab the exact items on each list and scan them at self-checkout.
+              Every level scores on accuracy alone: 99–100% = 100 pts, 80–98% = 80 pts, 60–79% = 50 pts, anything
+              lower = 1 pt. A perfect run is 1000 points and tops the world leaderboard at the back of the store.
             </p>
+
 
             <div className="mt-4 rounded-lg border border-white/10 bg-slate-800/50 p-3 text-xs">
               <span className="text-slate-400">Top score</span>{" "}
