@@ -62,6 +62,8 @@ function Index() {
   const [room, setRoom] = useState<string | null>(null);
   const [board, setBoard] = useState<RunEntry[]>([]);
   const [finalTime, setFinalTime] = useState(0);
+  const [finalScore, setFinalScore] = useState(0);
+  const [finalAccuracy, setFinalAccuracy] = useState(0);
 
   useEffect(() => setList(buildList(listSizeFor(1))), []);
 
