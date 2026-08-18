@@ -1598,8 +1598,10 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     if (locked) move(dt);
     else camera.position.set(player.pos.x, 1.68, player.pos.z);
     updateCart(dt);
+    updateCarried(dt);
+    updateFridgeDoors(dt);
     updateCartCollisions(dt);
-    if (frame % 2 === 0) updatePrompt();
+
     updateRemotes(dt);
     updateSparks(dt);
     kioskLight.intensity = 8 + Math.sin(t * 2) * 2;
