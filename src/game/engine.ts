@@ -185,8 +185,10 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     stencil: false,
   });
   MAX_ANISO = Math.min(16, renderer.capabilities.getMaxAnisotropy());
-  let renderScale = Math.min(devicePixelRatio, 1.5);
+  // supersample on low-DPI displays so edges and labels stay crisp
+  let renderScale = Math.min(Math.max(devicePixelRatio, 1.75), 2);
   renderer.setPixelRatio(renderScale);
+
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;
