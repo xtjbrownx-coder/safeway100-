@@ -579,9 +579,9 @@ function Index() {
             <h2 className="mt-1 text-3xl font-semibold">All {TOTAL_LEVELS} levels done</h2>
             <p className="mt-3 font-mono text-5xl text-emerald-300">{finalScore} pts</p>
             <p className="mt-1 text-xs text-slate-400">
-              {fmt(finalTime)} · average accuracy {finalAccuracy}% · speed bonus{" "}
-              {Math.max(0, 1800 - finalTime) * 2}
+              {fmt(finalTime)} · average accuracy {finalAccuracy}% · out of {TOTAL_LEVELS * 100} possible points
             </p>
+
 
             <p className="mt-2 text-sm text-slate-300">
               {best && finalScore >= best.score
