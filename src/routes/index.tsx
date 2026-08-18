@@ -163,6 +163,8 @@ function Index() {
           setCartHeld(attached);
           setCarrying(held);
         },
+        onPerf: setPerf,
+
       });
       gameRef.current = game;
       game.setShoppingList(
