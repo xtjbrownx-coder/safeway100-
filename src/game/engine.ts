@@ -980,6 +980,28 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     return sp;
   }
 
+  function syncRemoteCart(entry: RemoteEntry, ids: string[]) {
+    const same = ids.length === entry.cart.length && ids.every((v, i) => entry.cart[i] === v);
+    if (same) return;
+    entry.cart = [...ids];
+    const cg = entry.group.userData['cartGroup'] as THREE.Group | undefined;
+    if (!cg) return;
+    entry.cartMeshes.forEach((m) => cg.remove(m));
+    entry.cartMeshes.length = 0;
+    const basketY = (entry.group.userData['basketY'] as number) ?? 0.56;
+    ids.slice(0, 24).forEach((id, i) => {
+      const m = meshFor(byId(id));
+      m.castShadow = false;
+      const col = i % 3;
+      const row = Math.floor(i / 3) % 4;
+      const layer = Math.floor(i / 12);
+      m.position.set(-0.17 + col * 0.17, basketY + 0.07 + layer * 0.15, -0.24 + row * 0.16);
+      m.rotation.set(0, (i % 5) * 0.4, 0);
+      cg.add(m);
+      entry.cartMeshes.push(m);
+    });
+  }
+
   function setRemotePlayers(list: RemotePlayer[]) {
     const seen = new Set<string>();
     for (const rp of list) {
@@ -991,11 +1013,21 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
         group.add(label);
         scene.add(group);
         group.position.set(rp.x, 0, rp.z);
-        entry = { group, target: new THREE.Vector3(rp.x, 0, rp.z), yaw: rp.yaw, label };
+        entry = {
+          group,
+          target: new THREE.Vector3(rp.x, 0, rp.z),
+          yaw: rp.yaw,
+          label,
+          name: rp.name,
+          cart: [],
+          cartMeshes: [],
+        };
         remotes.set(rp.id, entry);
       }
       entry.target.set(rp.x, 0, rp.z);
       entry.yaw = rp.yaw;
+      entry.name = rp.name;
+      if (rp.cart) syncRemoteCart(entry, rp.cart);
     }
     for (const [id, entry] of remotes) {
       if (!seen.has(id)) {
@@ -1004,6 +1036,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       }
     }
   }
+
 
   // ---------- input ----------
   const keys = new Set<string>();
