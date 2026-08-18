@@ -1636,7 +1636,20 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     clearCart: () => {
       cartItems.forEach((m) => cart.group.remove(m));
       cartItems.length = 0;
+      if (carried) {
+        scene.remove(carried.mesh);
+        carried = null;
+      }
+      projectiles.forEach((p) => scene.remove(p.mesh));
+      projectiles.length = 0;
+      cartAttached = true;
+      cartVel.set(0, 0, 0);
+      cart.group.position.set(player.pos.x, 0, player.pos.z);
+      notifyCartMode();
     },
+    removeItem: (id: string) => removeFromCart(id),
+    getCartIds: () => cartItems.map((m) => m.userData['productId'] as string),
+
     dispose: () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("keydown", onKeyDown);
