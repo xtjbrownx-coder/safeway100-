@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CATALOG, byId } from "@/game/catalog";
 import type { Game, RemotePlayer } from "@/game/engine";
 import { PLAYER_COLORS, type Presence, type StoreConnection } from "@/game/multiplayer";
-import { computeScore, fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
+import { levelPoints, runScore, fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
 
 export const Route = createFileRoute("/")({
   head: () => ({
