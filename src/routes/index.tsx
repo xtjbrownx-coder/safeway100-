@@ -88,10 +88,12 @@ function Index() {
 
   // push the level list to the aisle-end boards in the store
   useEffect(() => {
+    listRef.current = list;
     gameRef.current?.setShoppingList(
       list.map((e) => ({ id: e.id, name: byId(e.id).name, qty: e.qty, aisle: byId(e.id).aisle })),
     );
   }, [list]);
+
 
   // live headcount for the public lobby (and the private room being joined)
   useEffect(() => {
