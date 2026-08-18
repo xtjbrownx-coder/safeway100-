@@ -282,11 +282,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   // ---------- ceiling + structure ----------
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(W, D),
-    new THREE.MeshStandardMaterial({ color: "#2a2f36", roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ color: "#464e58", roughness: 0.92, metalness: 0.05, envMapIntensity: 0.6 }),
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = H;
   scene.add(ceiling);
+
 
   const steel = new THREE.MeshPhysicalMaterial({ color: "#9aa3ac", roughness: 0.28, metalness: 0.9, envMapIntensity: 2.0, clearcoat: 0.6, clearcoatRoughness: 0.15 });
   for (let x = -W / 2 + 6; x <= W / 2 - 6; x += 8) {
