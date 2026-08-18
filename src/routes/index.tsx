@@ -130,6 +130,8 @@ function Index() {
     setScanned([]);
     setSeconds(0);
     setFinalTime(0);
+    setFinalScore(0);
+    setFinalAccuracy(0);
     setList(buildList(listSizeFor(1)));
     setPhase("shopping");
     setRunning(true);
