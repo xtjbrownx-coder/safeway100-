@@ -1205,6 +1205,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const tmpBox = new THREE.Box3();
   const tmpV = new THREE.Vector3();
 
+  function hitsCollider(x: number, z: number, r: number) {
+    tmpBox.setFromCenterAndSize(tmpV.set(x, 1, z), new THREE.Vector3(r * 2, 2, r * 2));
+    return colliders.some((c) => c.intersectsBox(tmpBox));
+  }
+
   function move(dt: number) {
     const dir = new THREE.Vector3();
     const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
@@ -1213,7 +1218,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     if (keys.has("KeyS") || keys.has("ArrowDown")) dir.sub(fwd);
     if (keys.has("KeyD") || keys.has("ArrowRight")) dir.add(right);
     if (keys.has("KeyA") || keys.has("ArrowLeft")) dir.sub(right);
-    const speed = keys.has("ShiftLeft") ? 5.8 : 3.2;
+    const freeBoost = cartAttached ? 1 : 1.55;
+    const speed = (keys.has("ShiftLeft") ? 5.8 : 3.2) * freeBoost;
     if (dir.lengthSq() > 0) dir.normalize().multiplyScalar(speed);
     player.vel.lerp(dir, 1 - Math.pow(0.0015, dt));
 
@@ -1221,8 +1227,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const tryAxis = (axis: "x" | "z", amount: number) => {
       const old = player.pos[axis];
       player.pos[axis] += amount;
-      tmpBox.setFromCenterAndSize(tmpV.set(player.pos.x, 1, player.pos.z), new THREE.Vector3(r * 2, 2, r * 2));
-      if (colliders.some((c) => c.intersectsBox(tmpBox))) player.pos[axis] = old;
+      if (hitsCollider(player.pos.x, player.pos.z, r)) player.pos[axis] = old;
     };
     tryAxis("x", player.vel.x * dt);
     tryAxis("z", player.vel.z * dt);
@@ -1234,43 +1239,205 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
   }
 
+  const CART_BODY_R = 0.5;
+  let shelfHitCooldown = 0;
+
+  function pushCart(impulse: THREE.Vector3, fromDir: THREE.Vector3) {
+    // rolling axis is the cart's local forward (wheels roll along it)
+    const cy = cart.group.rotation.y;
+    const fwd = new THREE.Vector3(-Math.sin(cy), 0, -Math.cos(cy));
+    const along = Math.abs(fromDir.dot(fwd));
+    const factor = along > 0.6 ? 3.2 : 0.6; // rolling side vs. sideways skid
+    cartVel.add(impulse.multiplyScalar(factor));
+  }
+
   function updateCart(dt: number) {
-    const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
-    cartAnchor.position.set(player.pos.x + fwd.x * 1.05, 0, player.pos.z + fwd.z * 1.05);
-    cart.group.position.lerp(cartAnchor.position, 1 - Math.pow(0.0008, dt));
-    const wanted = player.yaw;
-    let delta = ((wanted - cart.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
-    cart.group.rotation.y += delta * Math.min(1, dt * 8);
+    if (cartAttached) {
+      const fwd = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+      const wantX = player.pos.x + fwd.x * 1.05;
+      const wantZ = player.pos.z + fwd.z * 1.05;
+      cartAnchor.position.set(wantX, 0, wantZ);
+      cart.group.position.lerp(cartAnchor.position, 1 - Math.pow(0.0008, dt));
+
+      // cart body collides with shelves, fridges, counters
+      if (hitsCollider(cart.group.position.x, cart.group.position.z, CART_BODY_R)) {
+        const back = new THREE.Vector3(player.pos.x - cart.group.position.x, 0, player.pos.z - cart.group.position.z);
+        if (back.lengthSq() > 1e-6) {
+          back.normalize().multiplyScalar(0.09);
+          player.pos.x += back.x;
+          player.pos.z += back.z;
+          camera.position.set(player.pos.x, camera.position.y, player.pos.z);
+          cart.group.position.x += back.x;
+          cart.group.position.z += back.z;
+          cartAnchor.position.copy(cart.group.position);
+        }
+        player.vel.multiplyScalar(0.25);
+        if (shelfHitCooldown === 0) {
+          shelfHitCooldown = 0.5;
+          burstSparks(new THREE.Vector3(cart.group.position.x, 0.7, cart.group.position.z));
+          dink();
+        }
+      }
+
+      const wanted = player.yaw;
+      const delta = ((wanted - cart.group.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
+      cart.group.rotation.y += delta * Math.min(1, dt * 8);
+    } else {
+      // loose cart: rolls, slows down, bumps into fixtures
+      cartVel.multiplyScalar(Math.pow(0.12, dt));
+      if (cartVel.lengthSq() < 0.0004) cartVel.set(0, 0, 0);
+      const step = (axis: "x" | "z") => {
+        const old = cart.group.position[axis];
+        cart.group.position[axis] += cartVel[axis] * dt;
+        if (hitsCollider(cart.group.position.x, cart.group.position.z, CART_BODY_R)) {
+          cart.group.position[axis] = old;
+          cartVel[axis] *= -0.28;
+          if (shelfHitCooldown === 0 && Math.abs(cartVel[axis]) > 0.6) {
+            shelfHitCooldown = 0.5;
+            burstSparks(new THREE.Vector3(cart.group.position.x, 0.7, cart.group.position.z));
+            dink();
+          }
+        }
+      };
+      step("x");
+      step("z");
+      cart.group.position.x = THREE.MathUtils.clamp(cart.group.position.x, -W / 2 + 1, W / 2 - 1);
+      cart.group.position.z = THREE.MathUtils.clamp(cart.group.position.z, -D / 2 + 1, D / 2 - 1);
+      cartAnchor.position.copy(cart.group.position);
+
+      // the player can shove their own parked cart around
+      const dx = cart.group.position.x - player.pos.x;
+      const dz = cart.group.position.z - player.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.95 && d > 1e-4) {
+        const fromDir = new THREE.Vector3(dx / d, 0, dz / d);
+        pushCart(fromDir.clone().multiplyScalar(1.6), fromDir);
+        player.pos.x -= (dx / d) * 0.05;
+        player.pos.z -= (dz / d) * 0.05;
+      }
+    }
+  }
+
+  function updateCarried(dt: number) {
+    shelfHitCooldown = Math.max(0, shelfHitCooldown - dt);
+    if (carried) {
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      const right = new THREE.Vector3(dir.z, 0, -dir.x).normalize();
+      carried.mesh.position
+        .copy(camera.position)
+        .add(dir.multiplyScalar(0.62))
+        .add(right.multiplyScalar(0.24))
+        .add(new THREE.Vector3(0, -0.22, 0));
+      carried.mesh.rotation.y += dt * 1.2;
+    }
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const pr = projectiles[i]!;
+      pr.vel.y -= 12 * dt;
+      pr.mesh.position.addScaledVector(pr.vel, dt);
+      pr.mesh.rotation.x += dt * 6;
+      pr.mesh.rotation.z += dt * 4;
+
+      const cp = cart.group.position;
+      const inXZ = Math.hypot(pr.mesh.position.x - cp.x, pr.mesh.position.z - cp.z) < 0.44;
+      // must drop in through the TOP half of the basket
+      if (inXZ && pr.vel.y < 0 && pr.mesh.position.y < RIM_Y + 0.1 && pr.mesh.position.y > RIM_Y - 0.35) {
+        scene.remove(pr.mesh);
+        projectiles.splice(i, 1);
+        addToCart(pr.id);
+        cb.onPickup(pr.id);
+        tone(760, 0.14, "sine", 0.12, 1.7);
+        continue;
+      }
+      if (inXZ && pr.mesh.position.y < RIM_Y - 0.35 && pr.mesh.position.y > 0.25) {
+        // clanged off the side of the basket
+        pr.vel.multiplyScalar(-0.35);
+        dink();
+      }
+      if (pr.mesh.position.y <= 0.11) {
+        pr.mesh.position.y = 0.11;
+        scene.remove(pr.mesh);
+        projectiles.splice(i, 1);
+        const dropped = meshFor(byId(pr.id));
+        dropped.userData['productId'] = pr.id;
+        dropped.position.copy(pr.mesh.position);
+        scene.add(dropped);
+        products.push(dropped);
+        tone(160, 0.1, "sine", 0.06, 0.6);
+      }
+    }
   }
 
   let lastPrompt: string | null = null;
   const nearby: THREE.Mesh[] = [];
+  const remoteCartPos = new THREE.Vector3();
   function updatePrompt() {
     let bestK = Infinity;
     for (const k of kiosks) bestK = Math.min(bestK, camera.position.distanceTo(k));
     atKiosk = bestK < 2.8;
+    doorTarget = null;
+    stealTarget = null;
+    target = null;
     let text: string | null = null;
-    if (atKiosk) {
+
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+    // steal from another shopper's cart
+    let bestSteal = 2.6;
+    for (const [id, r] of remotes) {
+      if (!r.cart.length) continue;
+      const ry = r.group.rotation.y;
+      remoteCartPos.set(r.group.position.x + Math.sin(ry) * 0.75, 1, r.group.position.z + Math.cos(ry) * 0.75);
+      const d = remoteCartPos.distanceTo(camera.position);
+      if (d < bestSteal) {
+        bestSteal = d;
+        stealTarget = id;
+        text = `Swipe an item from ${r.name}'s cart (${r.cart.length})  [E]`;
+      }
+    }
+
+    if (!stealTarget) {
+      const doorHit = raycaster.intersectObjects(doorPanels, false)[0];
+      if (doorHit && doorHit.distance < 2.6) {
+        doorTarget = doorHit.object.userData['fridgeIndex'] as number;
+        text = `${fridgeDoors[doorTarget]?.open ? "Close" : "Open"} cooler door  [E]`;
+      }
+    }
+
+    if (!stealTarget && doorTarget === null && !cartAttached && carried) {
+      const d = Math.hypot(cart.group.position.x - player.pos.x, cart.group.position.z - player.pos.z);
+      if (d < 1.8) text = "Put item in cart  [E]  ·  or throw it  [click / Q]";
+    }
+
+    if (!text && atKiosk) {
       text = "Use self-checkout  [E]";
-      target = null;
-    } else {
+    } else if (!text) {
       nearby.length = 0;
       for (const p of products) {
         if (p.position.distanceToSquared(camera.position) < 16) nearby.push(p);
       }
-      raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const hit = raycaster.intersectObjects(nearby, false)[0];
       target = (hit?.object as THREE.Mesh) ?? null;
       if (target) {
         const p = byId(target.userData['productId'] as string);
-        text = `Take ${p.brand} ${p.name}  ·  $${p.price.toFixed(2)}  [E]`;
+        text =
+          !cartAttached && carried
+            ? "Hands full — stash the item in your cart first"
+            : `Take ${p.brand} ${p.name}  ·  $${p.price.toFixed(2)}  [E]`;
       }
     }
+
+    if (!text) {
+      text = cartAttached ? "Let go of cart  [F] — run faster, carry one item" : "Grab your cart  [F]";
+    }
+
     if (text !== lastPrompt) {
       lastPrompt = text;
       cb.onPrompt(text);
     }
   }
+
 
   function updateRemotes(dt: number) {
     for (const [, r] of remotes) {
