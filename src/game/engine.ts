@@ -1601,6 +1601,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     updateCarried(dt);
     updateFridgeDoors(dt);
     updateCartCollisions(dt);
+    if (frame % 2 === 0) updatePrompt();
+
 
     updateRemotes(dt);
     updateSparks(dt);
