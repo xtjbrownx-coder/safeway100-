@@ -796,11 +796,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
     const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.62 * s, 10), plastic);
     handle.rotation.z = Math.PI / 2;
-    handle.position.set(0, 1.0 * s, -0.42 * s);
+    handle.position.set(0, 1.0 * s, 0.42 * s);
     g.add(handle);
     for (const sx of [-1, 1]) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.42 * s, 8), chrome);
-      post.position.set(sx * 0.3 * s, 0.79 * s, -0.42 * s);
+      post.position.set(sx * 0.3 * s, 0.79 * s, 0.42 * s);
       g.add(post);
       const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.6 * s, 8), chrome);
       leg.position.set(sx * 0.28 * s, 0.3 * s, 0.3 * s);
@@ -816,8 +816,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       }
     }
     const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5 * s, 0.16 * s, 0.02), plastic);
-    plate.position.set(0, 0.72 * s, -0.4 * s);
+    plate.position.set(0, 0.72 * s, 0.4 * s);
     g.add(plate);
+
     return { group: g, basketY: 0.66 * s };
   }
 
