@@ -2089,8 +2089,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   // adaptive resolution: keep the frame rate high on weaker GPUs
   let perfAcc = 0;
   let perfFrames = 0;
+  let mode: QualityMode = "ultra";
   let quality: "smooth" | "ultra" = "ultra";
-  function setQuality(q: "smooth" | "ultra") {
+  let targetFps = 60;
+  let autoHold = 0;
+
+  function applyQuality(q: "smooth" | "ultra") {
     if (q === quality) return;
     quality = q;
     renderer.shadowMap.enabled = true;
@@ -2105,6 +2109,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     renderer.setPixelRatio(renderScale);
     resize();
   }
+
+  function setQuality(q: QualityMode) {
+    mode = q;
+    autoHold = 0;
+    applyQuality(q === "smooth" ? "smooth" : "ultra");
+  }
+
+  function setTargetFps(fps: number) {
+    targetFps = Math.max(30, Math.min(144, Math.round(fps)));
+  }
+
   function qualityMax() {
     const area = Math.max(1, canvas.clientWidth * canvas.clientHeight);
     const budget = Math.sqrt((quality === "ultra" ? 3_200_000 : 1_600_000) / area);
@@ -2119,16 +2134,25 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const fps = perfFrames / perfAcc;
     perfAcc = 0;
     perfFrames = 0;
-    cb.onPerf?.({ fps: Math.round(fps), scale: Math.round(renderScale * 100) / 100, quality });
+    cb.onPerf?.({
+      fps: Math.round(fps),
+      scale: Math.round(renderScale * 100) / 100,
+      quality,
+      mode,
+      target: targetFps,
+    });
 
     // never go below native-ish sharpness; antialiasing keeps edges clean
     const min = quality === "ultra" ? Math.max(0.9, Math.min(devicePixelRatio, 1)) : 0.75;
     // cap total rendered pixels so big windows stay smooth (tighter on Smooth)
     const max = Math.max(min, qualityMax());
 
+    const low = targetFps * 0.9;
+    const high = targetFps * 1.02;
+
     let next = renderScale;
-    if (fps < 50) next = Math.max(min, renderScale - 0.25);
-    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.15);
+    if (fps < low) next = Math.max(min, renderScale - 0.25);
+    else if (fps > high && renderScale < max) next = Math.min(max, renderScale + 0.15);
     next = Math.min(next, max);
 
     if (Math.abs(next - renderScale) > 0.01) {
@@ -2136,7 +2160,20 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       renderer.setPixelRatio(renderScale);
       resize();
     }
+
+    // Auto: once resolution alone can't hit the target, trade Ultra effects for frames
+    if (mode === "auto") {
+      autoHold += 0.6;
+      if (quality === "ultra" && fps < low && next <= min + 0.01 && autoHold > 2.4) {
+        applyQuality("smooth");
+        autoHold = 0;
+      } else if (quality === "smooth" && fps > targetFps * 1.2 && autoHold > 6) {
+        applyQuality("ultra");
+        autoHold = 0;
+      }
+    }
   }
+
 
 
   function tick() {
