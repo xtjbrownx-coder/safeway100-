@@ -828,7 +828,21 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       handle.position.set(facing * 0.07, 0, (facing * (UW - 0.06)) / 2 + facing * ((UW - 0.06) / 2 - 0.12));
       pivot.add(handle);
 
-      fridgeDoors.push({ pivot, panel, open: false, angle: 0, stock });
+      fridgeDoors.push({
+        pivot,
+        panel,
+        open: false,
+        angle: 0,
+        vel: 0,
+        latch: 0,
+        facing,
+        handle,
+        handleX: handle.position.x,
+        kind: aisle === "Meat" ? "meat" : "dairy",
+        amb: null,
+        closedSfx: true,
+        stock,
+      });
     }
   }
 
@@ -838,8 +852,34 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   function updateFridgeDoors(dt: number) {
     for (const d of fridgeDoors) {
       const wanted = d.open ? 1 : 0;
-      if (Math.abs(d.angle - wanted) < 0.001) continue;
-      d.angle += (wanted - d.angle) * Math.min(1, dt * 7);
+
+      // handle: pulls out and rotates before the hinge starts to move
+      const latchTarget = d.open ? 1 : 0;
+      const latchSpeed = d.open ? 16 : 24;
+      if (Math.abs(d.latch - latchTarget) > 0.001) {
+        d.latch += (latchTarget - d.latch) * Math.min(1, dt * latchSpeed);
+        d.handle.position.x = d.handleX + d.facing * 0.045 * d.latch;
+        d.handle.rotation.z = -0.28 * d.latch;
+      }
+
+      if (Math.abs(d.angle - wanted) < 0.0015 && Math.abs(d.vel) < 0.002) {
+        if (!d.open && !d.closedSfx) {
+          d.closedSfx = true;
+          thunk(false);
+          latchClick(false);
+        }
+        d.angle = wanted;
+        d.vel = 0;
+        d.pivot.rotation.y = -d.angle * 1.9;
+        continue;
+      }
+
+      // heavy gasketed door: slow to break the seal, quick mid-swing, damped settle
+      const gate = d.open ? Math.min(1, d.latch / 0.4) : 1;
+      const k = d.open ? 22 : 30;
+      const c = d.open ? 8.4 : 10.5;
+      d.vel += ((wanted - d.angle) * k * gate - d.vel * c) * dt;
+      d.angle = Math.max(0, Math.min(1.06, d.angle + d.vel * dt));
       d.pivot.rotation.y = -d.angle * 1.9;
     }
   }
@@ -850,14 +890,24 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     d.open = !d.open;
     if (d.open) {
       for (const m of d.stock) if (!products.includes(m)) products.push(m);
+      d.closedSfx = false;
+      latchClick(true);
+      gasket(true);
+      window.setTimeout(() => {
+        if (d.open) thunk(true);
+      }, 130);
+      d.amb ??= coolerAmbience(d.kind);
     } else {
       for (const m of d.stock) {
         const i = products.indexOf(m);
         if (i >= 0) products.splice(i, 1);
       }
+      gasket(false);
+      d.amb?.stop();
+      d.amb = null;
     }
-    thunk(d.open);
   }
+
 
 
   // ---------- checkout front end ----------
