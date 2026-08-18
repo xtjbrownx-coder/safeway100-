@@ -1458,40 +1458,81 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
     for (let i = projectiles.length - 1; i >= 0; i--) {
       const pr = projectiles[i]!;
-      pr.vel.y -= 12 * dt;
-      pr.mesh.position.addScaledVector(pr.vel, dt);
-      pr.mesh.rotation.x += dt * 6;
-      pr.mesh.rotation.z += dt * 4;
+      const m = pr.mesh;
+      pr.life += dt;
 
+      // ---- integrate linear + angular motion
+      pr.vel.y -= 16 * dt;
+      m.position.addScaledVector(pr.vel, dt);
+      const w = pr.spin;
+      const wl = w.length();
+      if (wl > 1e-4) {
+        spinQ.setFromAxisAngle(spinAxis.copy(w).divideScalar(wl), wl * dt);
+        m.quaternion.premultiply(spinQ).normalize();
+      }
+
+      // ---- cart basket capture (top half only)
       const cp = cart.group.position;
-      const inXZ = Math.hypot(pr.mesh.position.x - cp.x, pr.mesh.position.z - cp.z) < 0.44;
-      // must drop in through the TOP half of the basket
-      if (inXZ && pr.vel.y < 0 && pr.mesh.position.y < RIM_Y + 0.1 && pr.mesh.position.y > RIM_Y - 0.35) {
-        scene.remove(pr.mesh);
+      const inXZ = Math.hypot(m.position.x - cp.x, m.position.z - cp.z) < 0.44;
+      if (inXZ && pr.vel.y < 0 && m.position.y < RIM_Y + 0.1 && m.position.y > RIM_Y - 0.35) {
+        scene.remove(m);
         projectiles.splice(i, 1);
         addToCart(pr.id);
         cb.onPickup(pr.id);
         tone(760, 0.14, "sine", 0.12, 1.7);
         continue;
       }
-      if (inXZ && pr.mesh.position.y < RIM_Y - 0.35 && pr.mesh.position.y > 0.25) {
+      if (inXZ && m.position.y < RIM_Y - 0.35 && m.position.y > 0.25) {
         // clanged off the side of the basket
         pr.vel.multiplyScalar(-0.35);
+        pr.spin.multiplyScalar(-0.6).addScalar((Math.random() - 0.5) * 3);
         dink();
       }
-      if (pr.mesh.position.y <= 0.11) {
-        pr.mesh.position.y = 0.11;
-        scene.remove(pr.mesh);
+
+      // ---- floor contact using the real oriented footprint
+      const drop = lowestPoint(m);
+      if (drop < 0.005) {
+        m.position.y += -drop;
+        const impact = -pr.vel.y;
+        if (impact > 0.6) {
+          // bounce, bleed energy, and convert some of it into tumble
+          pr.vel.y = impact * pr.rest;
+          pr.vel.x *= 0.62;
+          pr.vel.z *= 0.62;
+          const kick = Math.min(impact, 8) * 0.55;
+          pr.spin.set(
+            pr.spin.x * -0.35 + (Math.random() - 0.5) * kick,
+            pr.spin.y * 0.6 + (Math.random() - 0.5) * kick * 0.6,
+            pr.spin.z * -0.35 + (Math.random() - 0.5) * kick,
+          );
+          tone(120 + Math.random() * 60, 0.08, "sine", Math.min(0.09, 0.02 + impact * 0.01), 0.6);
+        } else {
+          // sliding / rocking to a halt
+          pr.vel.y = 0;
+          pr.vel.x *= 0.86;
+          pr.vel.z *= 0.86;
+          pr.spin.multiplyScalar(0.8);
+          pr.settled += dt;
+        }
+      } else {
+        pr.settled = 0;
+      }
+
+      // ---- come to rest lying on a flat face, like a real box
+      const still = pr.vel.lengthSq() < 0.05 && pr.spin.lengthSq() < 0.6;
+      if ((pr.settled > 0.35 && still) || pr.life > 12) {
+        snapToRest(m);
+        m.position.y += -lowestPoint(m);
+        scene.remove(m);
         projectiles.splice(i, 1);
-        const dropped = meshFor(byId(pr.id));
-        dropped.userData['productId'] = pr.id;
-        dropped.position.copy(pr.mesh.position);
-        scene.add(dropped);
-        products.push(dropped);
-        tone(160, 0.1, "sine", 0.06, 0.6);
+        m.userData['productId'] = pr.id;
+        scene.add(m);
+        products.push(m);
+        tone(150, 0.09, "sine", 0.05, 0.6);
       }
     }
   }
+
 
   let lastPrompt: string | null = null;
   const nearby: THREE.Mesh[] = [];
