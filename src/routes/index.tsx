@@ -43,11 +43,14 @@ const listSizeFor = (level: number) => 3 + Math.floor((level - 1) * 0.7);
 
 function buildList(count: number): ListEntry[] {
   const pool = [...CATALOG].sort(() => Math.random() - 0.5).slice(0, count);
-  return pool.map((p) => ({ id: p.id, qty: Math.random() < 0.3 ? 2 : 1 }));
+  return pool.map((p) => ({ id: p.id, qty: realisticQty(p) }));
 }
+
+const NEXT_UPDATE = "Next update: August 20th · 5PM Western";
 
 const randomCode = () => Math.random().toString(36).slice(2, 7).toUpperCase();
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
 
 function Index() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
