@@ -135,27 +135,55 @@ export const CATALOG: ProductDef[] = [
 const INDEX = new Map(CATALOG.map((p) => [p.id, p] as const));
 export const byId = (id: string) => INDEX.get(id)!;
 
+/**
+ * Real-world shelf sizing: every product carries the package size a store
+ * actually stocks plus the min/max a shopper realistically takes off the shelf.
+ */
+type Pack = { unit: string; min: number; max: number };
+
+const PACKS: Record<string, Pack> = {
+  apples: { unit: "each", min: 3, max: 6 },
+  bananas: { unit: "each", min: 4, max: 7 },
+  tomatoes: { unit: "each", min: 3, max: 5 },
+  avocado: { unit: "each", min: 2, max: 4 },
+  lettuce: { unit: "head", min: 1, max: 2 },
+  carrots: { unit: "1 lb bag", min: 1, max: 2 },
+  berries: { unit: "16 oz clam", min: 1, max: 2 },
+  onions: { unit: "3 lb bag", min: 1, max: 1 },
+  potatoes: { unit: "5 lb bag", min: 1, max: 1 },
+  grapes: { unit: "2 lb tray", min: 1, max: 1 },
+  eggs: { unit: "12 ct", min: 1, max: 2 },
+  cake: { unit: "8 in", min: 1, max: 1 },
+  turkey: { unit: "1 lb pack", min: 1, max: 2 },
+  toiletpaper: { unit: "12 roll", min: 1, max: 1 },
+  vitamins: { unit: "90 ct", min: 1, max: 1 },
+  candles: { unit: "14 oz jar", min: 1, max: 1 },
+  shampoo: { unit: "12 oz", min: 1, max: 1 },
+  conditioner: { unit: "12 oz", min: 1, max: 1 },
+  bodywash: { unit: "18 oz", min: 1, max: 1 },
+  lotion: { unit: "16 oz", min: 1, max: 1 },
+};
+
+const SHAPE_PACKS: Record<Shape, Pack> = {
+  produce: { unit: "each", min: 2, max: 5 },
+  can: { unit: "15 oz can", min: 2, max: 4 },
+  bottle: { unit: "bottle", min: 1, max: 2 },
+  carton: { unit: "half gal", min: 1, max: 2 },
+  jar: { unit: "16 oz jar", min: 1, max: 2 },
+  tub: { unit: "32 oz tub", min: 1, max: 2 },
+  tray: { unit: "tray", min: 1, max: 2 },
+  bag: { unit: "bag", min: 1, max: 2 },
+  box: { unit: "box", min: 1, max: 2 },
+};
+
+const packFor = (p: ProductDef): Pack => PACKS[p.id] ?? SHAPE_PACKS[p.shape];
+
+/** Real-world package size shown on the aisle-end boards, e.g. "12 ct". */
+export const unitLabel = (p: ProductDef) => packFor(p).unit;
+
 /** How many of an item a real shopper would grab — matches real-world pack sizes. */
 export function realisticQty(p: ProductDef): number {
-  const pick = (min: number, max: number) => min + Math.floor(Math.random() * (max - min + 1));
-  const single = new Set(["cake", "eggs", "toiletpaper", "turkey", "vitamins", "candles", "shampoo", "conditioner", "bodywash", "lotion"]);
-  if (single.has(p.id)) return 1;
-  switch (p.shape) {
-    case "produce":
-      return pick(2, 6);
-    case "can":
-      return pick(2, 4);
-    case "tub":
-    case "jar":
-      return pick(1, 2);
-    case "carton":
-    case "bottle":
-      return pick(1, 2);
-    case "tray":
-      return pick(1, 2);
-    case "bag":
-      return pick(1, 2);
-    default:
-      return pick(1, 2);
-  }
+  const { min, max } = packFor(p);
+  return min + Math.floor(Math.random() * (max - min + 1));
 }
+

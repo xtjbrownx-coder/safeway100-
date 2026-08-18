@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CATALOG, byId, realisticQty } from "@/game/catalog";
+import { CATALOG, byId, realisticQty, unitLabel } from "@/game/catalog";
 import type { Game, RemotePlayer } from "@/game/engine";
 import { PLAYER_COLORS, type Presence, type StoreConnection } from "@/game/multiplayer";
 import {
@@ -76,9 +76,11 @@ function Index() {
   const [finalTime, setFinalTime] = useState(0);
   const [finalScore, setFinalScore] = useState(0);
   const [finalAccuracy, setFinalAccuracy] = useState(0);
+  const [quality, setQuality] = useState<"smooth" | "ultra">("ultra");
   const [cartHeld, setCartHeld] = useState(true);
   const [carrying, setCarrying] = useState<string | null>(null);
   const listRef = useRef<ListEntry[]>([]);
+  const qualityRef = useRef<"smooth" | "ultra">("ultra");
 
   const [publicCount, setPublicCount] = useState(0);
   const [privateCount, setPrivateCount] = useState(0);
@@ -90,9 +92,16 @@ function Index() {
   useEffect(() => {
     listRef.current = list;
     gameRef.current?.setShoppingList(
-      list.map((e) => ({ id: e.id, name: byId(e.id).name, qty: e.qty, aisle: byId(e.id).aisle })),
+      list.map((e) => ({
+        id: e.id,
+        name: byId(e.id).name,
+        qty: e.qty,
+        aisle: byId(e.id).aisle,
+        unit: unitLabel(byId(e.id)),
+      })),
+      level,
     );
-  }, [list]);
+  }, [list, level]);
 
 
   // live headcount for the public lobby (and the private room being joined)
@@ -157,8 +166,15 @@ function Index() {
       });
       gameRef.current = game;
       game.setShoppingList(
-        listRef.current.map((e) => ({ id: e.id, name: byId(e.id).name, qty: e.qty, aisle: byId(e.id).aisle })),
+        listRef.current.map((e) => ({
+          id: e.id,
+          name: byId(e.id).name,
+          qty: e.qty,
+          aisle: byId(e.id).aisle,
+          unit: unitLabel(byId(e.id)),
+        })),
       );
+      game.setQuality(qualityRef.current);
       void refreshBoard();
 
     })();
@@ -167,6 +183,11 @@ function Index() {
       game?.dispose();
     };
   }, [refreshBoard]);
+
+  useEffect(() => {
+    qualityRef.current = quality;
+    gameRef.current?.setQuality(quality);
+  }, [quality]);
 
   useEffect(() => {
     if (!running) return;
@@ -492,6 +513,29 @@ function Index() {
                 </button>
               </div>
             )}
+
+            <div className="mt-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Graphics quality</p>
+              <div className="mt-1 grid grid-cols-2 gap-2">
+                {(["smooth", "ultra"] as const).map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => setQuality(q)}
+                    className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
+                      quality === q
+                        ? "border-emerald-400/70 bg-emerald-400/10 text-emerald-200"
+                        : "border-white/10 bg-slate-800/50 text-slate-300 hover:bg-slate-800"
+                    }`}
+                  >
+                    <span className="block font-semibold">{q === "smooth" ? "Smooth" : "Ultra realistic"}</span>
+                    <span className="text-[11px] text-slate-400">
+                      {q === "smooth" ? "Lighter resolution + shadows" : "Full supersampling + soft shadows"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-[10px] text-slate-500">Visuals only — levels, lists and scoring never change.</p>
+            </div>
 
             <button
               onClick={startRun}

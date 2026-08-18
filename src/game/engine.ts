@@ -424,7 +424,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     number: number;
   };
   const endcaps: EndcapBoard[] = [];
-  let listEntries: { id: string; name: string; qty: number; aisle: string }[] = [];
+  let listEntries: { id: string; name: string; qty: number; aisle: string; unit?: string }[] = [];
+  let listLevel = 1;
 
   function drawEndcap(b: EndcapBoard) {
     const g = b.ctx;
@@ -439,7 +440,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     g.fillText(`AISLE ${b.number} & ${b.number + 1}`, 256, 42);
     g.font = "700 26px Helvetica, Arial, sans-serif";
     g.fillStyle = "#bff0d8";
-    g.fillText("ON YOUR LIST", 256, 82);
+    g.fillText(`LEVEL ${listLevel} · ON YOUR LIST`, 256, 82);
 
     const mine = listEntries.filter((e) => e.aisle === b.aisles[0] || e.aisle === b.aisles[1]);
     if (!mine.length) {
@@ -448,13 +449,16 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       g.fillText("nothing here this level", 256, 330);
     }
     mine.slice(0, 9).forEach((e, i) => {
-      const y = 150 + i * 52;
+      const y = 152 + i * 52;
       g.fillStyle = i % 2 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.1)";
-      g.fillRect(26, y - 21, 460, 44);
+      g.fillRect(26, y - 23, 460, 48);
       g.textAlign = "left";
       g.fillStyle = "#e8eef6";
-      g.font = "600 26px Helvetica, Arial, sans-serif";
-      g.fillText(e.name.slice(0, 20), 42, y);
+      g.font = "600 25px Helvetica, Arial, sans-serif";
+      g.fillText(e.name.slice(0, 20), 42, y - 8);
+      g.fillStyle = "#7f8b9b";
+      g.font = "500 18px Helvetica, Arial, sans-serif";
+      g.fillText(e.unit ?? "", 42, y + 14);
       g.textAlign = "right";
       g.fillStyle = "#8fe3b6";
       g.font = "700 28px monospace";
@@ -1947,6 +1951,29 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   // adaptive resolution: keep the frame rate high on weaker GPUs
   let perfAcc = 0;
   let perfFrames = 0;
+  let quality: "smooth" | "ultra" = "ultra";
+  function setQuality(q: "smooth" | "ultra") {
+    if (q === quality) return;
+    quality = q;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = q === "ultra" ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    key.castShadow = q === "ultra";
+    key.shadow.mapSize.set(q === "ultra" ? 2048 : 1024, q === "ultra" ? 2048 : 1024);
+    key.shadow.map?.dispose();
+    (key.shadow as unknown as { map: unknown }).map = null;
+    renderer.shadowMap.needsUpdate = true;
+    scene.environmentIntensity = q === "ultra" ? 1.05 : 0.9;
+    renderScale = Math.min(renderScale, qualityMax());
+    renderer.setPixelRatio(renderScale);
+    resize();
+  }
+  function qualityMax() {
+    const area = Math.max(1, canvas.clientWidth * canvas.clientHeight);
+    const budget = Math.sqrt((quality === "ultra" ? 3_200_000 : 1_600_000) / area);
+    const ceiling = quality === "ultra" ? 2.5 : 1.35;
+    return Math.max(0.75, Math.min(Math.max(devicePixelRatio, 2), ceiling, budget));
+  }
+
   function adaptResolution(dt: number) {
     perfAcc += dt;
     perfFrames++;
@@ -1955,11 +1982,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     perfAcc = 0;
     perfFrames = 0;
     // never go below native-ish sharpness; antialiasing keeps edges clean
-    const min = Math.max(0.9, Math.min(devicePixelRatio, 1));
-    // cap total rendered pixels (~3.2M) so big windows stay smooth
-    const area = Math.max(1, canvas.clientWidth * canvas.clientHeight);
-    const budget = Math.sqrt(3_200_000 / area);
-    const max = Math.max(min, Math.min(Math.max(devicePixelRatio, 2), 2.5, budget));
+    const min = quality === "ultra" ? Math.max(0.9, Math.min(devicePixelRatio, 1)) : 0.75;
+    // cap total rendered pixels so big windows stay smooth (tighter on Smooth)
+    const max = Math.max(min, qualityMax());
 
     let next = renderScale;
     if (fps < 50) next = Math.max(min, renderScale - 0.25);
@@ -2008,8 +2033,13 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
     setLeaderboard: (entries: { name: string; total_seconds: number; score: number }[]) => drawBoard(entries),
-    setShoppingList: (entries: { id: string; name: string; qty: number; aisle: string }[]) => {
+    setQuality,
+    setShoppingList: (
+      entries: { id: string; name: string; qty: number; aisle: string; unit?: string }[],
+      level?: number,
+    ) => {
       listEntries = entries;
+      if (level) listLevel = level;
       endcaps.forEach(drawEndcap);
     },
 
