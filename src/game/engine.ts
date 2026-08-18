@@ -690,7 +690,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   boardLight.position.set(0, 4.6, -D / 2 + 2);
   scene.add(boardLight);
 
-  function drawBoard(entries: { name: string; total_seconds: number }[]) {
+  function drawBoard(entries: { name: string; total_seconds: number; score: number }[]) {
     const [, g] = boardCanvas;
     g.fillStyle = "#0d1420";
     g.fillRect(0, 0, 1024, 768);
@@ -703,7 +703,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     g.fillText("WORLD LEADERBOARD", 512, 56);
     g.font = "600 30px Helvetica, Arial, sans-serif";
     g.fillStyle = "#8fe3b6";
-    g.fillText("FASTEST 10-LEVEL SHOPPING RUNS", 512, 148);
+    g.fillText("HIGHEST SCORING 10-LEVEL RUNS", 512, 148);
     const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
     if (!entries.length) {
       g.fillStyle = "#7f8b9b";
@@ -718,11 +718,14 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       g.fillStyle = i === 0 ? "#ffd76a" : "#e6edf5";
       g.font = "700 34px Helvetica, Arial, sans-serif";
       g.fillText(`${i + 1}.`, 110, y);
-      g.fillText(e.name.slice(0, 14), 180, y);
+      g.fillText(e.name.slice(0, 12), 180, y);
       g.textAlign = "right";
+      g.fillStyle = "#7f8b9b";
+      g.font = "600 26px monospace";
+      g.fillText(fmt(e.total_seconds), 700, y);
       g.fillStyle = i === 0 ? "#ffd76a" : "#8fe3b6";
       g.font = "700 36px monospace";
-      g.fillText(fmt(e.total_seconds), 914, y);
+      g.fillText(`${e.score} pts`, 914, y);
     });
     boardTex.needsUpdate = true;
   }
