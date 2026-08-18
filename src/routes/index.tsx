@@ -152,7 +152,11 @@ function Index() {
         },
       });
       gameRef.current = game;
+      game.setShoppingList(
+        listRef.current.map((e) => ({ id: e.id, name: byId(e.id).name, qty: e.qty, aisle: byId(e.id).aisle })),
+      );
       void refreshBoard();
+
     })();
     return () => {
       alive = false;
