@@ -222,7 +222,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   ceiling.position.y = H;
   scene.add(ceiling);
 
-  const steel = new THREE.MeshStandardMaterial({ color: "#9aa3ac", roughness: 0.42, metalness: 0.72 });
+  const steel = new THREE.MeshPhysicalMaterial({ color: "#9aa3ac", roughness: 0.28, metalness: 0.9, envMapIntensity: 2.0, clearcoat: 0.6, clearcoatRoughness: 0.15 });
   for (let x = -W / 2 + 6; x <= W / 2 - 6; x += 8) {
     const truss = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, D), steel);
     truss.position.set(x, H - 0.4, 0);
@@ -299,8 +299,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     );
 
   // ---------- shared shelf materials ----------
-  const shelfSteel = new THREE.MeshStandardMaterial({ color: "#c3c9cf", roughness: 0.34, metalness: 0.85 });
-  const shelfDeck = new THREE.MeshStandardMaterial({ color: "#d6dade", roughness: 0.3, metalness: 0.8 });
+  const shelfSteel = new THREE.MeshPhysicalMaterial({ color: "#c3c9cf", roughness: 0.2, metalness: 0.95, envMapIntensity: 2.2, clearcoat: 0.7, clearcoatRoughness: 0.12 });
+  const shelfDeck = new THREE.MeshPhysicalMaterial({ color: "#d6dade", roughness: 0.16, metalness: 0.9, envMapIntensity: 2.4, clearcoat: 0.8, clearcoatRoughness: 0.1 });
   const pegboard = (() => {
     const [c, g] = makeCanvas(128, 128);
     g.fillStyle = "#aeb6bd";
@@ -560,7 +560,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   // ---------- shopping cart (first person, visible when looking down) ----------
   function buildCart(tint: string, small = false) {
     const g = new THREE.Group();
-    const chrome = new THREE.MeshStandardMaterial({ color: "#dfe4e8", roughness: 0.22, metalness: 0.95 });
+    const chrome = new THREE.MeshPhysicalMaterial({ color: "#e6ebee", roughness: 0.1, metalness: 1.0, envMapIntensity: 2.6, clearcoat: 1, clearcoatRoughness: 0.06 });
     const plastic = new THREE.MeshStandardMaterial({ color: tint, roughness: 0.4, metalness: 0.1 });
     const s = small ? 0.85 : 1;
 
