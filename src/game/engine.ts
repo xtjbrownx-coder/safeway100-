@@ -20,6 +20,8 @@ export type GameCallbacks = {
   onMove?: (x: number, z: number, yaw: number) => void;
   onSteal?: (victimId: string, productId: string) => void;
   onCartModeChange?: (attached: boolean, carrying: string | null) => void;
+  onPerf?: (p: { fps: number; scale: number; quality: "smooth" | "ultra" }) => void;
+
 };
 
 
