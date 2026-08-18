@@ -542,6 +542,36 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       group.add(rod);
     }
 
+    // list board on both ends of the run, readable from the aisle end
+    {
+      const [ecCanvas, ecCtx] = makeCanvas(512, 640);
+      const ecTex = toTex(ecCanvas);
+      const board: EndcapBoard = {
+        aisles: [aisleA, aisleB],
+        ctx: ecCtx,
+        tex: ecTex,
+        number: runIndex * 2 + 1,
+      };
+      endcaps.push(board);
+      const ecMat = new THREE.MeshStandardMaterial({
+        map: ecTex,
+        emissiveMap: ecTex,
+        emissive: new THREE.Color("#ffffff"),
+        emissiveIntensity: 0.22,
+        roughness: 0.5,
+        metalness: 0.05,
+      });
+      for (const z of [RUN_LEN / 2 + 0.1, -RUN_LEN / 2 - 0.1]) {
+        const panel = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 1.44), ecMat);
+        panel.position.set(0, 1.55, z);
+        panel.rotation.y = z > 0 ? 0 : Math.PI;
+        group.add(panel);
+      }
+      drawEndcap(board);
+    }
+
+
+
     // ---- stock both faces ----
     for (const s of [-1, 1]) {
       const aisle = s < 0 ? aisleA : aisleB;
