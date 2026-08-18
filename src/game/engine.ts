@@ -121,6 +121,42 @@ function productMaterial(p: ProductDef, tex: THREE.Texture) {
   });
 }
 
+// ---------------------------------------------------------------- audio
+let sharedAudio: AudioContext | null = null;
+function audio() {
+  const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return null;
+  sharedAudio ??= new Ctor();
+  if (sharedAudio.state === "suspended") void sharedAudio.resume();
+  return sharedAudio;
+}
+
+function tone(freq: number, dur: number, type: OscillatorType, vol: number, slide = 1) {
+  try {
+    const ctx = audio();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    g.connect(ctx.destination);
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    osc.frequency.exponentialRampToValueAtTime(freq * slide, t0 + dur);
+    osc.connect(g);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  } catch {
+    /* audio unavailable */
+  }
+}
+
+function thunk(open: boolean) {
+  tone(open ? 240 : 150, 0.22, "sine", 0.16, open ? 1.35 : 0.7);
+}
+
 // ---------------------------------------------------------------- game
 export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -492,6 +528,13 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     clearcoat: 0.6,
   });
   const fridgeInner = new THREE.MeshStandardMaterial({ color: "#c9d6dd", roughness: 0.35, metalness: 0.4 });
+  const chromeBar = new THREE.MeshPhysicalMaterial({
+    color: "#e6ebee",
+    roughness: 0.09,
+    metalness: 1,
+    envMapIntensity: 2.6,
+    clearcoat: 1,
+  });
 
   function buildFridgeBank(aisle: string, x: number, z0: number, facing: 1 | -1, units: number, label: string) {
     const items = CATALOG.filter((p) => p.aisle === aisle);
