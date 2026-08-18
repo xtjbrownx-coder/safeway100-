@@ -11,12 +11,14 @@ type Opts = {
   color: string;
   onPlayers: (players: RemotePlayer[]) => void;
   onRoster: (roster: Presence[]) => void;
+  onStolen?: (productId: string) => void;
 };
 
-export function joinStore({ room, name, color, onPlayers, onRoster }: Opts) {
+export function joinStore({ room, name, color, onPlayers, onRoster, onStolen }: Opts) {
   const id = Math.random().toString(36).slice(2, 10);
   const positions = new Map<string, RemotePlayer>();
   let itemCount = 0;
+  let cartIds: string[] = [];
 
   const channel = supabase.channel(`store:${room}`, {
     config: { presence: { key: id }, broadcast: { self: false } },
@@ -30,6 +32,10 @@ export function joinStore({ room, name, color, onPlayers, onRoster }: Opts) {
       if (!p || p.id === id) return;
       positions.set(p.id, p);
       emit();
+    })
+    .on("broadcast", { event: "steal" }, ({ payload }) => {
+      const p = payload as { victim: string; productId: string };
+      if (p?.victim === id) onStolen?.(p.productId);
     })
     .on("presence", { event: "sync" }, () => {
       const state = channel.presenceState<Presence>();
@@ -58,7 +64,13 @@ export function joinStore({ room, name, color, onPlayers, onRoster }: Opts) {
       const now = performance.now();
       if (now - last < 90) return;
       last = now;
-      void channel.send({ type: "broadcast", event: "pos", payload: { id, name, color, x, z, yaw } });
+      void channel.send({ type: "broadcast", event: "pos", payload: { id, name, color, x, z, yaw, cart: cartIds } });
+    },
+    setCart(ids: string[]) {
+      cartIds = ids;
+    },
+    steal(victim: string, productId: string) {
+      void channel.send({ type: "broadcast", event: "steal", payload: { victim, productId } });
     },
     setItems(n: number) {
       if (n === itemCount) return;
