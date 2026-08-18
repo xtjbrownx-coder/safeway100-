@@ -77,6 +77,8 @@ function Index() {
   const [finalScore, setFinalScore] = useState(0);
   const [finalAccuracy, setFinalAccuracy] = useState(0);
   const [quality, setQuality] = useState<"smooth" | "ultra">("ultra");
+  const [perf, setPerf] = useState<{ fps: number; scale: number; quality: "smooth" | "ultra" } | null>(null);
+
   const [cartHeld, setCartHeld] = useState(true);
   const [carrying, setCarrying] = useState<string | null>(null);
   const listRef = useRef<ListEntry[]>([]);
