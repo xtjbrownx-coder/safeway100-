@@ -397,10 +397,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const aisle = s < 0 ? aisleA : aisleB;
       const items = CATALOG.filter((p) => p.aisle === aisle);
       if (!items.length) continue;
-      const perItem = Math.max(2, Math.floor(RUN_LEN / 0.62 / items.length));
+      const STEP = 0.9;
+      const perItem = Math.max(2, Math.floor(RUN_LEN / STEP / items.length));
       SHELF_Y.forEach((y, level) => {
         let n = 0;
-        for (let z = -RUN_LEN / 2 + 0.45; z <= RUN_LEN / 2 - 0.45; z += 0.62) {
+        for (let z = -RUN_LEN / 2 + 0.45; z <= RUN_LEN / 2 - 0.45; z += STEP) {
           const p = items[Math.floor((n / perItem + level) % items.length)]!;
           const m = meshFor(p);
           const yOff =
@@ -408,6 +409,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
           m.position.set(cx + s * (RUN_HALF_D - 0.18), y + yOff, (RUN_Z0 + RUN_Z1) / 2 + z + (Math.random() - 0.5) * 0.04);
           m.rotation.y = s < 0 ? -Math.PI / 2 : Math.PI / 2;
           m.userData['productId'] = p.id;
+          m.updateMatrix();
+          m.matrixAutoUpdate = false;
           scene.add(m);
           products.push(m);
           n++;
