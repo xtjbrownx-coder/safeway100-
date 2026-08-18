@@ -1535,7 +1535,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const myCart = new THREE.Vector3();
   function updateCartCollisions(dt: number) {
     hitCooldown = Math.max(0, hitCooldown - dt);
-    myCart.copy(cartAnchor.position);
+    myCart.copy(cart.group.position);
     for (const [, r] of remotes) {
       const ry = r.group.rotation.y;
       remoteCart.set(r.group.position.x + Math.sin(ry) * 0.75, 0, r.group.position.z + Math.cos(ry) * 0.75);
@@ -1543,9 +1543,26 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const dz = myCart.z - remoteCart.z;
       const d = Math.hypot(dx, dz);
       const minD = CART_R * 2;
-      if (d > minD || d < 1e-4) continue;
+      const bodyD = Math.hypot(myCart.x - r.group.position.x, myCart.z - r.group.position.z);
+
+      if (!cartAttached && (d < minD || bodyD < CART_R + 0.45)) {
+        // someone ran into my parked cart — direction decides how far it rolls
+        const ox = d < minD ? dx : myCart.x - r.group.position.x;
+        const oz = d < minD ? dz : myCart.z - r.group.position.z;
+        const len = Math.hypot(ox, oz) || 1;
+        const fromDir = new THREE.Vector3(ox / len, 0, oz / len);
+        pushCart(fromDir.clone().multiplyScalar(2.2), fromDir);
+        if (hitCooldown === 0) {
+          hitCooldown = 0.35;
+          burstSparks(new THREE.Vector3(myCart.x, 0.72, myCart.z));
+          dink();
+        }
+        continue;
+      }
+
+      if (!cartAttached || d > minD || d < 1e-4) continue;
       // push the player (and their cart) out of the other cart
-      const push = (minD - d) + 0.02;
+      const push = minD - d + 0.02;
       player.pos.x += (dx / d) * push;
       player.pos.z += (dz / d) * push;
       player.vel.multiplyScalar(0.2);
@@ -1559,6 +1576,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       break;
     }
   }
+
 
   function resize() {
     const w = canvas.clientWidth || window.innerWidth;
