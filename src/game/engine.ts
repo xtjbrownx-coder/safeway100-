@@ -2,7 +2,15 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { CATALOG, AISLES, byId, type ProductDef } from "./catalog";
 
-export type RemotePlayer = { id: string; name: string; x: number; z: number; yaw: number; color: string };
+export type RemotePlayer = {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  yaw: number;
+  color: string;
+  cart?: string[];
+};
 
 export type GameCallbacks = {
   onPrompt: (text: string | null) => void;
@@ -10,7 +18,10 @@ export type GameCallbacks = {
   onCheckout: () => void;
   onLockChange: (locked: boolean) => void;
   onMove?: (x: number, z: number, yaw: number) => void;
+  onSteal?: (victimId: string, productId: string) => void;
+  onCartModeChange?: (attached: boolean, carrying: string | null) => void;
 };
+
 
 // ---------------------------------------------------------------- textures
 function makeCanvas(w: number, h: number) {
