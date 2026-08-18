@@ -1554,33 +1554,48 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       if (drop < 0.005) {
         m.position.y += -drop;
         const impact = -pr.vel.y;
-        if (impact > 0.6) {
+        const horiz = Math.hypot(pr.vel.x, pr.vel.z);
+        if (impact > 0.35) {
           // bounce, bleed energy, and convert some of it into tumble
           pr.vel.y = impact * pr.rest;
-          pr.vel.x *= 0.62;
-          pr.vel.z *= 0.62;
-          const kick = Math.min(impact, 8) * 0.55;
+          pr.vel.x *= 0.86;
+          pr.vel.z *= 0.86;
+          const kick = Math.min(impact, 8) * 0.7;
           pr.spin.set(
-            pr.spin.x * -0.35 + (Math.random() - 0.5) * kick,
-            pr.spin.y * 0.6 + (Math.random() - 0.5) * kick * 0.6,
-            pr.spin.z * -0.35 + (Math.random() - 0.5) * kick,
+            pr.spin.x * -0.3 + (Math.random() - 0.5) * kick,
+            pr.spin.y * 0.7 + (Math.random() - 0.5) * kick * 0.6,
+            pr.spin.z * -0.3 + (Math.random() - 0.5) * kick,
           );
           tone(120 + Math.random() * 60, 0.08, "sine", Math.min(0.09, 0.02 + impact * 0.01), 0.6);
         } else {
-          // sliding / rocking to a halt
           pr.vel.y = 0;
-          pr.vel.x *= 0.86;
-          pr.vel.z *= 0.86;
-          pr.spin.multiplyScalar(0.8);
-          pr.settled += dt;
+          if (pr.roll) {
+            // round things keep rolling: barely any friction, spin follows travel
+            pr.vel.x *= 0.995;
+            pr.vel.z *= 0.995;
+            const r = Math.max(pr.radius, 0.05);
+            pr.spin.set(-pr.vel.z / r, pr.spin.y * 0.98, pr.vel.x / r);
+          } else {
+            // boxes slide, scrape and keep tumbling while they still have speed
+            pr.vel.x *= 0.965;
+            pr.vel.z *= 0.965;
+            pr.spin.multiplyScalar(0.94);
+            if (horiz > 0.8) {
+              // catch an edge now and then and flip over
+              pr.spin.x += -pr.vel.z * 0.9 * dt * 12;
+              pr.spin.z += pr.vel.x * 0.9 * dt * 12;
+            }
+          }
+          if (horiz < 0.25 && pr.spin.lengthSq() < 1.2) pr.settled += dt;
+          else pr.settled = 0;
         }
       } else {
         pr.settled = 0;
       }
 
       // ---- come to rest lying on a flat face, like a real box
-      const still = pr.vel.lengthSq() < 0.05 && pr.spin.lengthSq() < 0.6;
-      if ((pr.settled > 0.35 && still) || pr.life > 12) {
+      const still = pr.vel.lengthSq() < 0.02 && pr.spin.lengthSq() < 0.25;
+      if ((pr.settled > 0.8 && still) || pr.life > 25) {
         snapToRest(m);
         m.position.y += -lowestPoint(m);
         scene.remove(m);
@@ -1590,6 +1605,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
         products.push(m);
         tone(150, 0.09, "sine", 0.05, 0.6);
       }
+
     }
   }
 
