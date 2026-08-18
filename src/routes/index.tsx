@@ -471,30 +471,31 @@ function Index() {
           <div className="w-full max-w-md rounded-2xl border border-amber-300/25 bg-slate-900/90 p-7 text-slate-100 shadow-2xl">
             <p className="text-[11px] uppercase tracking-[0.3em] text-amber-300">Run complete</p>
             <h2 className="mt-1 text-3xl font-semibold">All {TOTAL_LEVELS} levels done</h2>
-            <p className="mt-3 font-mono text-5xl text-emerald-300">{fmt(finalTime)}</p>
+            <p className="mt-3 font-mono text-5xl text-emerald-300">{finalScore} pts</p>
             <p className="mt-1 text-xs text-slate-400">
-              Average accuracy {Math.round(accuracies.reduce((s, v) => s + v, 0) / Math.max(accuracies.length, 1))}%
+              {fmt(finalTime)} · average accuracy {finalAccuracy}% · speed bonus{" "}
+              {Math.max(0, 1800 - finalTime) * 2}
             </p>
 
             <p className="mt-2 text-sm text-slate-300">
-              {best && finalTime <= best.total_seconds
-                ? "New world record — you're the fastest shopper alive."
+              {best && finalScore >= best.score
+                ? "New world record — highest score in the store."
                 : best
-                  ? `${fmt(Math.max(0, finalTime - best.total_seconds))} behind ${best.name}'s record of ${fmt(best.total_seconds)}.`
-                  : "Your time is the first on the board."}
-              {rank > 0 && ` You rank #${rank} worldwide.`}
+                  ? `${best.score - finalScore} pts behind ${best.name}'s ${best.score}.`
+                  : "Your score is the first on the board."}
+              {` You rank #${rank} worldwide.`}
             </p>
 
             <div className="mt-5 rounded-xl border border-white/10 bg-slate-800/50 p-3">
-              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">World leaderboard</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">World leaderboard · top scores</p>
               <ol className="mt-2 space-y-1 text-sm">
                 {board.length === 0 && <li className="text-slate-400">No runs yet.</li>}
                 {board.map((b, i) => (
                   <li key={`${b.name}-${i}`} className="flex justify-between">
                     <span className={i === 0 ? "text-amber-300" : "text-slate-200"}>
-                      {i + 1}. {b.name}
+                      {i + 1}. {b.name} <span className="text-[10px] text-slate-500">{fmt(b.total_seconds)}</span>
                     </span>
-                    <span className="font-mono text-emerald-300">{fmt(b.total_seconds)}</span>
+                    <span className="font-mono text-emerald-300">{b.score} pts</span>
                   </li>
                 ))}
               </ol>
