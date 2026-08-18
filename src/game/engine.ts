@@ -468,6 +468,145 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     scene.add(t);
   }
 
+  // ---------- refrigerated cases (openable glass doors) ----------
+  type FridgeDoor = { pivot: THREE.Group; panel: THREE.Mesh; open: boolean; angle: number; stock: THREE.Mesh[] };
+  const fridgeDoors: FridgeDoor[] = [];
+  const doorPanels: THREE.Mesh[] = [];
+
+  const fridgeGlass = new THREE.MeshPhysicalMaterial({
+    color: "#dff0f7",
+    transmission: 0.86,
+    roughness: 0.04,
+    thickness: 0.12,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.5,
+    envMapIntensity: 2.4,
+    clearcoat: 1,
+  });
+  const fridgeBody = new THREE.MeshPhysicalMaterial({
+    color: "#e7ecf0",
+    roughness: 0.22,
+    metalness: 0.85,
+    envMapIntensity: 2.2,
+    clearcoat: 0.6,
+  });
+  const fridgeInner = new THREE.MeshStandardMaterial({ color: "#c9d6dd", roughness: 0.35, metalness: 0.4 });
+
+  function buildFridgeBank(aisle: string, x: number, z0: number, facing: 1 | -1, units: number, label: string) {
+    const items = CATALOG.filter((p) => p.aisle === aisle);
+    const UW = 1.5;
+    const depth = 1.5;
+    const height = 2.6;
+    const bankLen = units * UW;
+    addCollider(x, z0 + bankLen / 2 - UW / 2, depth + 0.2, bankLen + 0.2);
+
+    // shell
+    const shell = new THREE.Mesh(new THREE.BoxGeometry(depth, height, bankLen), fridgeBody);
+    shell.position.set(x, height / 2, z0 + bankLen / 2 - UW / 2);
+    shell.castShadow = shell.receiveShadow = true;
+    scene.add(shell);
+
+    // header sign
+    const header = new THREE.Mesh(
+      new THREE.PlaneGeometry(bankLen, 0.8),
+      new THREE.MeshStandardMaterial({
+        map: signTex(label, aisle, "#0d4f7a"),
+        roughness: 0.5,
+        emissive: new THREE.Color("#0d4f7a"),
+        emissiveIntensity: 0.3,
+      }),
+    );
+    header.position.set(x + facing * (depth / 2 + 0.02), height + 0.45, z0 + bankLen / 2 - UW / 2);
+    header.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+    scene.add(header);
+
+    const caseLight = new THREE.PointLight("#eaf6ff", 6, 12, 2);
+    caseLight.position.set(x + facing * 1.2, 2.2, z0 + bankLen / 2 - UW / 2);
+    scene.add(caseLight);
+
+    for (let u = 0; u < units; u++) {
+      const cz = z0 + u * UW;
+
+      // interior alcove + stock on 3 racks
+      const alcove = new THREE.Mesh(new THREE.BoxGeometry(depth - 0.3, height - 0.5, UW - 0.14), fridgeInner);
+      alcove.position.set(x - facing * 0.12, height / 2 - 0.05, cz);
+      scene.add(alcove);
+
+      const stock: THREE.Mesh[] = [];
+      if (items.length) {
+        [0.62, 1.24, 1.86].forEach((sy, level) => {
+          const rack = new THREE.Mesh(new THREE.BoxGeometry(depth - 0.4, 0.03, UW - 0.2), shelfDeck);
+          rack.position.set(x - facing * 0.1, sy, cz);
+          scene.add(rack);
+          for (let k = 0; k < 4; k++) {
+            const p = items[(u * 3 + level * 2 + k) % items.length]!;
+            const m = meshFor(p);
+            m.position.set(x + facing * (depth / 2 - 0.45), sy + 0.17, cz - UW / 2 + 0.28 + k * 0.3);
+            m.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+            m.userData['productId'] = p.id;
+            m.updateMatrix();
+            m.matrixAutoUpdate = false;
+            scene.add(m);
+            stock.push(m);
+          }
+        });
+      }
+
+      // hinged glass door
+      const pivot = new THREE.Group();
+      pivot.position.set(x + facing * (depth / 2 + 0.03), height / 2 - 0.1, cz - (UW / 2) * facing);
+      scene.add(pivot);
+
+      const panel = new THREE.Mesh(new THREE.PlaneGeometry(UW - 0.06, height - 0.4), fridgeGlass);
+      panel.position.set(0, 0, (facing * (UW - 0.06)) / 2);
+      panel.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+      panel.userData['fridgeIndex'] = fridgeDoors.length;
+      pivot.add(panel);
+      doorPanels.push(panel);
+
+      const frameMat = fridgeBody;
+      for (const off of [-1, 1]) {
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, height - 0.4, 0.06), frameMat);
+        bar.position.set(0, 0, (facing * (UW - 0.06)) / 2 + off * ((UW - 0.06) / 2));
+        pivot.add(bar);
+      }
+      const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, height - 0.9, 8), chromeBar);
+      handle.position.set(facing * 0.07, 0, (facing * (UW - 0.06)) / 2 + facing * ((UW - 0.06) / 2 - 0.12));
+      pivot.add(handle);
+
+      fridgeDoors.push({ pivot, panel, open: false, angle: 0, stock });
+    }
+  }
+
+  buildFridgeBank("Dairy", -W / 2 + 1.4, -13, 1, 5, "DAIRY");
+  buildFridgeBank("Meat", W / 2 - 1.4, -13, -1, 5, "MEAT");
+
+  function updateFridgeDoors(dt: number) {
+    for (const d of fridgeDoors) {
+      const wanted = d.open ? 1 : 0;
+      if (Math.abs(d.angle - wanted) < 0.001) continue;
+      d.angle += (wanted - d.angle) * Math.min(1, dt * 7);
+      d.pivot.rotation.y = -d.angle * 1.9;
+    }
+  }
+
+  function toggleFridge(index: number) {
+    const d = fridgeDoors[index];
+    if (!d) return;
+    d.open = !d.open;
+    if (d.open) {
+      for (const m of d.stock) if (!products.includes(m)) products.push(m);
+    } else {
+      for (const m of d.stock) {
+        const i = products.indexOf(m);
+        if (i >= 0) products.splice(i, 1);
+      }
+    }
+    thunk(d.open);
+  }
+
+
   // ---------- checkout front end ----------
   const kiosks: THREE.Vector3[] = [];
   const counterMat = new THREE.MeshStandardMaterial({ color: "#f2f4f6", roughness: 0.3, metalness: 0.25 });
