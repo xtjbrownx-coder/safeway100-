@@ -1981,6 +1981,8 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const fps = perfFrames / perfAcc;
     perfAcc = 0;
     perfFrames = 0;
+    cb.onPerf?.({ fps: Math.round(fps), scale: Math.round(renderScale * 100) / 100, quality });
+
     // never go below native-ish sharpness; antialiasing keeps edges clean
     const min = quality === "ultra" ? Math.max(0.9, Math.min(devicePixelRatio, 1)) : 0.75;
     // cap total rendered pixels so big windows stay smooth (tighter on Smooth)
