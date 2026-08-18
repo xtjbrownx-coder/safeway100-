@@ -78,14 +78,60 @@ function Index() {
   const [finalAccuracy, setFinalAccuracy] = useState(0);
   const [cartHeld, setCartHeld] = useState(true);
   const [carrying, setCarrying] = useState<string | null>(null);
+  const [publicCount, setPublicCount] = useState(0);
+  const [privateCount, setPrivateCount] = useState(0);
+  const [hall, setHall] = useState<HallEntry[]>([]);
 
   useEffect(() => setList(buildList(listSizeFor(1))), []);
 
+  // push the level list to the aisle-end boards in the store
+  useEffect(() => {
+    gameRef.current?.setShoppingList(
+      list.map((e) => ({ id: e.id, name: byId(e.id).name, qty: e.qty, aisle: byId(e.id).aisle })),
+    );
+  }, [list]);
+
+  // live headcount for the public lobby (and the private room being joined)
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let alive = true;
+    void (async () => {
+      const { watchRoomCount } = await import("@/game/multiplayer");
+      if (!alive) return;
+      stop = watchRoomCount("public-lobby", setPublicCount);
+    })();
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    const roomCode = code.trim().toUpperCase();
+    if (mode !== "private" || roomCode.length < 4) {
+      setPrivateCount(0);
+      return;
+    }
+    let stop: (() => void) | undefined;
+    let alive = true;
+    void (async () => {
+      const { watchRoomCount } = await import("@/game/multiplayer");
+      if (!alive) return;
+      stop = watchRoomCount(roomCode, setPrivateCount);
+    })();
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, [mode, code]);
+
   const refreshBoard = useCallback(async () => {
-    const rows = await fetchTopRuns(10);
+    const [rows, hof] = await Promise.all([fetchTopRuns(10), fetchHallOfFame(50)]);
     setBoard(rows);
+    setHall(hof);
     gameRef.current?.setLeaderboard(rows);
   }, []);
+
 
   useEffect(() => {
     let alive = true;
