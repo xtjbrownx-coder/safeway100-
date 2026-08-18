@@ -49,7 +49,9 @@ function toTex(c: HTMLCanvasElement, repeat?: [number, number]) {
 
 
 function labelTexture(p: ProductDef) {
-  const [c, g] = makeCanvas(256, 256);
+  const [c, g] = makeCanvas(512, 512);
+  g.scale(2, 2);
+
   g.fillStyle = p.color;
   g.fillRect(0, 0, 256, 256);
   // soft vertical sheen
