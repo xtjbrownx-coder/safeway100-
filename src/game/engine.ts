@@ -1835,7 +1835,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     perfAcc = 0;
     perfFrames = 0;
     // never go below native-ish sharpness; antialiasing keeps edges clean
-    const min = Math.min(devicePixelRatio, 1);
+    const min = Math.min(devicePixelRatio, 0.9);
     const max = Math.min(devicePixelRatio, 2);
     let next = renderScale;
     if (fps < 45) next = Math.max(min, renderScale - 0.25);
