@@ -416,7 +416,60 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   const SHELF_Y = [0.5, 1.0, 1.5, 1.98];
 
+  // ---------- aisle-end "on your list" boards ----------
+  type EndcapBoard = {
+    aisles: [string, string];
+    ctx: CanvasRenderingContext2D;
+    tex: THREE.CanvasTexture;
+    number: number;
+  };
+  const endcaps: EndcapBoard[] = [];
+  let listEntries: { id: string; name: string; qty: number; aisle: string }[] = [];
+
+  function drawEndcap(b: EndcapBoard) {
+    const g = b.ctx;
+    g.fillStyle = "#101823";
+    g.fillRect(0, 0, 512, 640);
+    g.fillStyle = "#0f5c46";
+    g.fillRect(0, 0, 512, 108);
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillStyle = "#ffffff";
+    g.font = "800 44px Helvetica, Arial, sans-serif";
+    g.fillText(`AISLE ${b.number} & ${b.number + 1}`, 256, 42);
+    g.font = "700 26px Helvetica, Arial, sans-serif";
+    g.fillStyle = "#bff0d8";
+    g.fillText("ON YOUR LIST", 256, 82);
+
+    const mine = listEntries.filter((e) => e.aisle === b.aisles[0] || e.aisle === b.aisles[1]);
+    if (!mine.length) {
+      g.fillStyle = "#6b7889";
+      g.font = "500 26px Helvetica, Arial, sans-serif";
+      g.fillText("nothing here this level", 256, 330);
+    }
+    mine.slice(0, 9).forEach((e, i) => {
+      const y = 150 + i * 52;
+      g.fillStyle = i % 2 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.1)";
+      g.fillRect(26, y - 21, 460, 44);
+      g.textAlign = "left";
+      g.fillStyle = "#e8eef6";
+      g.font = "600 26px Helvetica, Arial, sans-serif";
+      g.fillText(e.name.slice(0, 20), 42, y);
+      g.textAlign = "right";
+      g.fillStyle = "#8fe3b6";
+      g.font = "700 28px monospace";
+      g.fillText(`x${e.qty}`, 470, y);
+      g.textAlign = "center";
+    });
+
+    g.fillStyle = "#7f8b9b";
+    g.font = "600 20px Helvetica, Arial, sans-serif";
+    g.fillText("NEXT UPDATE AUG 20 · 5PM WESTERN", 256, 612);
+    b.tex.needsUpdate = true;
+  }
+
   RUN_X.forEach((cx, runIndex) => {
+
     const group = new THREE.Group();
     group.position.set(cx, 0, (RUN_Z0 + RUN_Z1) / 2);
     scene.add(group);
