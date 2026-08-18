@@ -178,6 +178,77 @@ function thunk(open: boolean) {
   tone(open ? 240 : 150, 0.22, "sine", 0.16, open ? 1.35 : 0.7);
 }
 
+// short metallic click for the door latch / handle
+function latchClick(open: boolean) {
+  tone(open ? 1350 : 900, 0.05, "square", 0.04, open ? 0.6 : 0.5);
+}
+
+// gasket suction as the seal peels off / re-seats
+function gasket(open: boolean) {
+  tone(open ? 90 : 120, 0.3, "sawtooth", 0.035, open ? 1.6 : 0.55);
+}
+
+// looping cooler ambience while a door hangs open
+type Ambience = { stop: () => void };
+function coolerAmbience(kind: "dairy" | "meat"): Ambience | null {
+  try {
+    const ctx = audio();
+    if (!ctx) return null;
+    const t0 = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t0);
+    out.gain.exponentialRampToValueAtTime(kind === "meat" ? 0.05 : 0.035, t0 + 0.5);
+    out.connect(ctx.destination);
+
+    // compressor hum
+    const hum = ctx.createOscillator();
+    hum.type = "sawtooth";
+    hum.frequency.setValueAtTime(kind === "meat" ? 58 : 92, t0);
+    const humFilter = ctx.createBiquadFilter();
+    humFilter.type = "lowpass";
+    humFilter.frequency.setValueAtTime(kind === "meat" ? 220 : 420, t0);
+    const humGain = ctx.createGain();
+    humGain.gain.setValueAtTime(0.6, t0);
+    hum.connect(humFilter).connect(humGain).connect(out);
+    hum.start(t0);
+
+    // cold-air hiss spilling out of the open case
+    const len = Math.floor(ctx.sampleRate * 2);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    noise.loop = true;
+    const air = ctx.createBiquadFilter();
+    air.type = "bandpass";
+    air.frequency.setValueAtTime(kind === "meat" ? 1100 : 1700, t0);
+    air.Q.setValueAtTime(0.7, t0);
+    const airGain = ctx.createGain();
+    airGain.gain.setValueAtTime(0.25, t0);
+    noise.connect(air).connect(airGain).connect(out);
+    noise.start(t0);
+
+    return {
+      stop: () => {
+        try {
+          const t1 = ctx.currentTime;
+          out.gain.cancelScheduledValues(t1);
+          out.gain.setValueAtTime(Math.max(0.0001, out.gain.value), t1);
+          out.gain.exponentialRampToValueAtTime(0.0001, t1 + 0.45);
+          hum.stop(t1 + 0.5);
+          noise.stop(t1 + 0.5);
+        } catch {
+          /* ignore */
+        }
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+
 // ---------------------------------------------------------------- game
 export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const renderer = new THREE.WebGLRenderer({
