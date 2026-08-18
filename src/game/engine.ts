@@ -815,6 +815,13 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   const cartItems: THREE.Mesh[] = [];
   const cartAnchor = new THREE.Object3D();
 
+  // detachable-cart state
+  let cartAttached = true;
+  const cartVel = new THREE.Vector3();
+  let carried: { id: string; mesh: THREE.Mesh } | null = null;
+  const projectiles: { mesh: THREE.Mesh; id: string; vel: THREE.Vector3 }[] = [];
+  const RIM_Y = 0.95;
+
   function layoutCart() {
     cartItems.forEach((m, i) => {
       const col = i % 3;
@@ -843,6 +850,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       layoutCart();
     }
   }
+
 
   // ---------- shoppers (NPCs) + remote players ----------
   const skinTones = ["#e8c39e", "#c98b62", "#8d5a3b", "#f0d5bd", "#5f3b28"];
