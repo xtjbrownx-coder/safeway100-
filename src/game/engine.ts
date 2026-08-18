@@ -1246,6 +1246,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const radius = mesh.geometry.boundingSphere?.radius ?? 0.14;
     const shape = byId(carried.id).shape;
     const rest = shape === "can" || shape === "bottle" ? 0.34 : shape === "bag" ? 0.12 : 0.24;
+    const roll = shape === "can" || shape === "bottle" || shape === "jar" || shape === "tub" || shape === "produce";
     projectiles.push({
       mesh,
       id: carried.id,
@@ -1258,9 +1259,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       ),
       radius,
       rest,
+      roll,
       settled: 0,
       life: 0,
     });
+
     carried = null;
     tone(420, 0.1, "triangle", 0.07, 0.7);
     notifyCartMode();
