@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CATALOG, byId } from "@/game/catalog";
 import type { Game, RemotePlayer } from "@/game/engine";
 import { PLAYER_COLORS, type Presence, type StoreConnection } from "@/game/multiplayer";
-import { computeScore, fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
+import { levelPoints, runScore, fetchTopRuns, submitRun, type RunEntry } from "@/game/leaderboard";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -184,17 +184,20 @@ function Index() {
       setRunning(false);
       setFinalTime(seconds);
       setPhase("finish");
-      const avg = Math.round([...accuracies, score].reduce((s, v) => s + v, 0) / TOTAL_LEVELS);
+      const all = [...accuracies, score];
+      const avg = Math.round(all.reduce((s, v) => s + v, 0) / TOTAL_LEVELS);
+      const total = runScore(all);
       setFinalAccuracy(avg);
-      setFinalScore(computeScore(seconds, avg));
+      setFinalScore(total);
       void (async () => {
-        await submitRun({ name: name.trim() || "Shopper", total_seconds: seconds, accuracy: avg });
+        await submitRun({ name: name.trim() || "Shopper", total_seconds: seconds, accuracy: avg, score: total });
         await refreshBoard();
       })();
     } else {
       setPhase("receipt");
     }
   }, [result.score, level, seconds, accuracies, name, refreshBoard]);
+
 
   const nextLevel = useCallback(() => {
     const next = level + 1;
@@ -244,10 +247,8 @@ function Index() {
   const done = list.filter((e) => (counts.get(e.id) ?? 0) >= e.qty).length;
   const best = board[0];
   const rank = (board.filter((b) => b.score > finalScore).length || 0) + 1;
-  const liveScore = computeScore(
-    seconds,
-    accuracies.length ? accuracies.reduce((s, v) => s + v, 0) / accuracies.length : 100,
-  );
+  const liveScore = runScore(accuracies) + (phase === "checkout" ? levelPoints(result.score) : 0);
+
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950">
@@ -350,10 +351,11 @@ function Index() {
             <p className="text-[11px] uppercase tracking-[0.3em] text-emerald-300">10-level speedrun</p>
             <h2 className="mt-1 text-3xl font-semibold">Cart &amp; Aisle</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-300">
-              Ten shopping levels, one stopwatch. Grab the exact items on each list and scan them at self-checkout. You
-              earn points for accuracy (50 per percent) plus a speed bonus (2 per second saved) — the highest score
-              tops the world leaderboard at the back of the store.
+              Ten shopping levels, one stopwatch. Grab the exact items on each list and scan them at self-checkout.
+              Every level scores on accuracy alone: 99–100% = 100 pts, 80–98% = 80 pts, 60–79% = 50 pts, anything
+              lower = 1 pt. A perfect run is 1000 points and tops the world leaderboard at the back of the store.
             </p>
+
 
             <div className="mt-4 rounded-lg border border-white/10 bg-slate-800/50 p-3 text-xs">
               <span className="text-slate-400">Top score</span>{" "}
@@ -577,9 +579,9 @@ function Index() {
             <h2 className="mt-1 text-3xl font-semibold">All {TOTAL_LEVELS} levels done</h2>
             <p className="mt-3 font-mono text-5xl text-emerald-300">{finalScore} pts</p>
             <p className="mt-1 text-xs text-slate-400">
-              {fmt(finalTime)} · average accuracy {finalAccuracy}% · speed bonus{" "}
-              {Math.max(0, 1800 - finalTime) * 2}
+              {fmt(finalTime)} · average accuracy {finalAccuracy}% · out of {TOTAL_LEVELS * 100} possible points
             </p>
+
 
             <p className="mt-2 text-sm text-slate-300">
               {best && finalScore >= best.score
