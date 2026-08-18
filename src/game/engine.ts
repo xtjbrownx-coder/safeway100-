@@ -1157,7 +1157,17 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       g.font = "700 36px monospace";
       g.fillText(`${e.score} pts`, 914, y);
     });
+    g.textAlign = "center";
+    g.fillStyle = "#c8202c";
+    g.fillRect(0, 690, 1024, 78);
+    g.fillStyle = "#ffffff";
+    g.font = "700 30px Helvetica, Arial, sans-serif";
+    g.fillText("NEXT UPDATE: AUGUST 20 · 5PM WESTERN", 512, 716);
+    g.fillStyle = "#ffd76a";
+    g.font = "600 22px Helvetica, Arial, sans-serif";
+    g.fillText("EVERY FINISHER IS RECORDED IN THE HALL OF FAME FOREVER", 512, 748);
     boardTex.needsUpdate = true;
+
   }
   drawBoard([]);
 
