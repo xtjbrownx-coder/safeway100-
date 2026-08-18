@@ -2008,6 +2008,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     lock: () => canvas.requestPointerLock(),
     setRemotePlayers,
     setLeaderboard: (entries: { name: string; total_seconds: number; score: number }[]) => drawBoard(entries),
+    setShoppingList: (entries: { id: string; name: string; qty: number; aisle: string }[]) => {
+      listEntries = entries;
+      endcaps.forEach(drawEndcap);
+    },
+
     returnItem: (id: string) => {
       removeFromCart(id);
       const p = byId(id);
