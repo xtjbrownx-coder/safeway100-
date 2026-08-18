@@ -463,6 +463,18 @@ function Index() {
               </button>
             </div>
 
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+              <p className="flex items-center gap-1.5 text-slate-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="font-mono text-emerald-300">{publicCount}</span> live in public server
+              </p>
+              <p className="flex items-center gap-1.5 text-slate-400">
+                <span className={`h-1.5 w-1.5 rounded-full ${privateCount ? "bg-emerald-400" : "bg-slate-600"}`} />
+                <span className="font-mono text-emerald-300">{privateCount}</span> live in this room
+              </p>
+            </div>
+
+
             {mode === "private" && (
               <div className="mt-3 flex gap-2">
                 <input
