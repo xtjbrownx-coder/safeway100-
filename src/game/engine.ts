@@ -185,8 +185,10 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     stencil: false,
   });
   MAX_ANISO = Math.min(16, renderer.capabilities.getMaxAnisotropy());
-  let renderScale = Math.min(devicePixelRatio, 1.5);
+  // supersample on low-DPI displays so edges and labels stay crisp
+  let renderScale = Math.min(Math.max(devicePixelRatio, 1.75), 2);
   renderer.setPixelRatio(renderScale);
+
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.shadowMap.autoUpdate = false;
@@ -862,7 +864,10 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     rest: number;
     settled: number;
     life: number;
+    /** cylindrical / round items roll instead of flopping flat */
+    roll: boolean;
   };
+
   const projectiles: Projectile[] = [];
 
   const RIM_Y = 0.95;
@@ -1243,6 +1248,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const radius = mesh.geometry.boundingSphere?.radius ?? 0.14;
     const shape = byId(carried.id).shape;
     const rest = shape === "can" || shape === "bottle" ? 0.34 : shape === "bag" ? 0.12 : 0.24;
+    const roll = shape === "can" || shape === "bottle" || shape === "jar" || shape === "tub" || shape === "produce";
     projectiles.push({
       mesh,
       id: carried.id,
@@ -1255,9 +1261,11 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       ),
       radius,
       rest,
+      roll,
       settled: 0,
       life: 0,
     });
+
     carried = null;
     tone(420, 0.1, "triangle", 0.07, 0.7);
     notifyCartMode();
@@ -1548,33 +1556,48 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       if (drop < 0.005) {
         m.position.y += -drop;
         const impact = -pr.vel.y;
-        if (impact > 0.6) {
+        const horiz = Math.hypot(pr.vel.x, pr.vel.z);
+        if (impact > 0.35) {
           // bounce, bleed energy, and convert some of it into tumble
           pr.vel.y = impact * pr.rest;
-          pr.vel.x *= 0.62;
-          pr.vel.z *= 0.62;
-          const kick = Math.min(impact, 8) * 0.55;
+          pr.vel.x *= 0.86;
+          pr.vel.z *= 0.86;
+          const kick = Math.min(impact, 8) * 0.7;
           pr.spin.set(
-            pr.spin.x * -0.35 + (Math.random() - 0.5) * kick,
-            pr.spin.y * 0.6 + (Math.random() - 0.5) * kick * 0.6,
-            pr.spin.z * -0.35 + (Math.random() - 0.5) * kick,
+            pr.spin.x * -0.3 + (Math.random() - 0.5) * kick,
+            pr.spin.y * 0.7 + (Math.random() - 0.5) * kick * 0.6,
+            pr.spin.z * -0.3 + (Math.random() - 0.5) * kick,
           );
           tone(120 + Math.random() * 60, 0.08, "sine", Math.min(0.09, 0.02 + impact * 0.01), 0.6);
         } else {
-          // sliding / rocking to a halt
           pr.vel.y = 0;
-          pr.vel.x *= 0.86;
-          pr.vel.z *= 0.86;
-          pr.spin.multiplyScalar(0.8);
-          pr.settled += dt;
+          if (pr.roll) {
+            // round things keep rolling: barely any friction, spin follows travel
+            pr.vel.x *= 0.995;
+            pr.vel.z *= 0.995;
+            const r = Math.max(pr.radius, 0.05);
+            pr.spin.set(-pr.vel.z / r, pr.spin.y * 0.98, pr.vel.x / r);
+          } else {
+            // boxes slide, scrape and keep tumbling while they still have speed
+            pr.vel.x *= 0.965;
+            pr.vel.z *= 0.965;
+            pr.spin.multiplyScalar(0.94);
+            if (horiz > 0.8) {
+              // catch an edge now and then and flip over
+              pr.spin.x += -pr.vel.z * 0.9 * dt * 12;
+              pr.spin.z += pr.vel.x * 0.9 * dt * 12;
+            }
+          }
+          if (horiz < 0.25 && pr.spin.lengthSq() < 1.2) pr.settled += dt;
+          else pr.settled = 0;
         }
       } else {
         pr.settled = 0;
       }
 
       // ---- come to rest lying on a flat face, like a real box
-      const still = pr.vel.lengthSq() < 0.05 && pr.spin.lengthSq() < 0.6;
-      if ((pr.settled > 0.35 && still) || pr.life > 12) {
+      const still = pr.vel.lengthSq() < 0.02 && pr.spin.lengthSq() < 0.25;
+      if ((pr.settled > 0.8 && still) || pr.life > 25) {
         snapToRest(m);
         m.position.y += -lowestPoint(m);
         scene.remove(m);
@@ -1584,6 +1607,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
         products.push(m);
         tone(150, 0.09, "sine", 0.05, 0.6);
       }
+
     }
   }
 
@@ -1838,8 +1862,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     perfAcc = 0;
     perfFrames = 0;
     // never go below native-ish sharpness; antialiasing keeps edges clean
-    const min = Math.min(devicePixelRatio, 0.9);
-    const max = Math.min(devicePixelRatio, 2);
+    const min = Math.max(1, Math.min(devicePixelRatio, 1));
+    const max = Math.min(Math.max(devicePixelRatio, 2), 2.5);
+
     let next = renderScale;
     if (fps < 45) next = Math.max(min, renderScale - 0.25);
     else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.25);
