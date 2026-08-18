@@ -2213,6 +2213,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     setRemotePlayers,
     setLeaderboard: (entries: { name: string; total_seconds: number; score: number }[]) => drawBoard(entries),
     setQuality,
+    setTargetFps,
     setShoppingList: (
       entries: { id: string; name: string; qty: number; aisle: string; unit?: string }[],
       level?: number,
@@ -2257,6 +2258,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       document.removeEventListener("mousemove", onMouseMove);
       document.removeEventListener("pointerlockchange", onLock);
       window.removeEventListener("resize", resize);
+      for (const d of fridgeDoors) d.amb?.stop();
       renderer.dispose();
       pmrem.dispose();
       scene.traverse((o) => {
