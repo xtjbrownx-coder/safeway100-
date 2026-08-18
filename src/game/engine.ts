@@ -1712,21 +1712,23 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
   function adaptResolution(dt: number) {
     perfAcc += dt;
     perfFrames++;
-    if (perfAcc < 1) return;
+    if (perfAcc < 1.25) return;
     const fps = perfFrames / perfAcc;
     perfAcc = 0;
     perfFrames = 0;
-    const min = 0.6;
-    const max = Math.min(devicePixelRatio, 1.25);
+    // never go below native-ish sharpness; antialiasing keeps edges clean
+    const min = Math.min(devicePixelRatio, 1);
+    const max = Math.min(devicePixelRatio, 2);
     let next = renderScale;
-    if (fps < 50) next = Math.max(min, renderScale - 0.15);
-    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.1);
+    if (fps < 45) next = Math.max(min, renderScale - 0.25);
+    else if (fps > 58 && renderScale < max) next = Math.min(max, renderScale + 0.25);
     if (Math.abs(next - renderScale) > 0.01) {
       renderScale = next;
       renderer.setPixelRatio(renderScale);
       resize();
     }
   }
+
 
   function tick() {
     raf = requestAnimationFrame(tick);
