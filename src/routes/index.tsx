@@ -46,7 +46,6 @@ function buildList(count: number): ListEntry[] {
   return pool.map((p) => ({ id: p.id, qty: realisticQty(p) }));
 }
 
-const NEXT_UPDATE = "Next update: August 20th · 5PM Western";
 
 const randomCode = () => Math.random().toString(36).slice(2, 7).toUpperCase();
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
@@ -614,9 +613,6 @@ function Index() {
               WASD move · mouse look · E interact · F let go of cart · click/Q throw items
             </p>
 
-            <div className="mt-4 rounded-lg border border-amber-300/25 bg-amber-300/5 px-3 py-2 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
-              {NEXT_UPDATE}
-            </div>
 
             <div className="mt-3 rounded-lg border border-white/10 bg-slate-800/40 p-3">
               <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Hall of fame · kept forever</p>
@@ -834,9 +830,6 @@ function Index() {
               </ul>
             </div>
 
-            <p className="mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-200">
-              {NEXT_UPDATE}
-            </p>
 
 
 
