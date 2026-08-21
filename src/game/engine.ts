@@ -713,6 +713,9 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     amb: Ambience | null;
     closedSfx: boolean;
     stock: THREE.Mesh[];
+    aisle: string;
+    unitIndex: number;
+    slots: { x: number; y: number; z: number; rotY: number }[];
   };
 
   const fridgeDoors: FridgeDoor[] = [];
@@ -805,21 +808,19 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       scene.add(inner);
 
       const stock: THREE.Mesh[] = [];
+      const slots: { x: number; y: number; z: number; rotY: number }[] = [];
       if (items.length) {
-        [0.62, 1.24, 1.86].forEach((sy, level) => {
+        [0.62, 1.24, 1.86].forEach((sy) => {
           const rack = new THREE.Mesh(new THREE.BoxGeometry(depth - 0.4, 0.03, UW - 0.2), shelfDeck);
           rack.position.set(x - facing * 0.1, sy, cz);
           scene.add(rack);
           for (let k = 0; k < 4; k++) {
-            const p = items[(u * 3 + level * 2 + k) % items.length]!;
-            const m = meshFor(p);
-            m.position.set(x + facing * (depth / 2 - 0.3), sy + 0.17, cz - UW / 2 + 0.28 + k * 0.3);
-            m.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
-            m.userData['productId'] = p.id;
-            m.updateMatrix();
-            m.matrixAutoUpdate = false;
-            scene.add(m);
-            stock.push(m);
+            slots.push({
+              x: x + facing * (depth / 2 - 0.3),
+              y: sy + 0.17,
+              z: cz - UW / 2 + 0.28 + k * 0.3,
+              rotY: facing > 0 ? Math.PI / 2 : -Math.PI / 2,
+            });
           }
         });
       }
@@ -860,12 +861,56 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
         amb: null,
         closedSfx: true,
         stock,
+        aisle,
+        unitIndex: u,
+        slots,
       });
     }
   }
 
   buildFridgeBank("Dairy", -W / 2 + 1.4, -13, 1, 5, "DAIRY");
   buildFridgeBank("Meat", W / 2 - 1.4, -13, -1, 5, "MEAT");
+
+  // fill every cooler with this level's dairy/meat list items up front, filler behind
+  function restockFridges() {
+    for (const d of fridgeDoors) {
+      for (const m of d.stock) {
+        scene.remove(m);
+        const i = products.indexOf(m);
+        if (i >= 0) products.splice(i, 1);
+      }
+      d.stock.length = 0;
+
+      const aisleItems = CATALOG.filter((p) => p.aisle === d.aisle);
+      if (!aisleItems.length || !d.slots.length) continue;
+      const wanted = listEntries
+        .filter((e) => e.aisle === d.aisle)
+        .map((e) => CATALOG.find((p) => p.id === e.id))
+        .filter((p): p is ProductDef => !!p);
+      const filler = aisleItems.filter((p) => !wanted.some((w) => w.id === p.id));
+      const pool = filler.length ? filler : aisleItems;
+
+      d.slots.forEach((slot, i) => {
+        const rack = Math.floor(i / 4);
+        const col = i % 4;
+        // front two facings of every rack are the list items for this aisle
+        const p =
+          wanted.length && col < 2
+            ? wanted[(rack * 2 + col + d.unitIndex) % wanted.length]!
+            : pool[(rack * 3 + col + d.unitIndex * 2) % pool.length]!;
+        const m = meshFor(p);
+        m.position.set(slot.x, slot.y, slot.z);
+        m.rotation.y = slot.rotY;
+        m.userData['productId'] = p.id;
+        m.updateMatrix();
+        m.matrixAutoUpdate = false;
+        scene.add(m);
+        d.stock.push(m);
+        if (d.open) products.push(m);
+      });
+    }
+  }
+  restockFridges();
 
   function updateFridgeDoors(dt: number) {
     for (const d of fridgeDoors) {
@@ -2277,6 +2322,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       listEntries = entries;
       if (level) listLevel = level;
       endcaps.forEach(drawEndcap);
+      restockFridges();
     },
 
     returnItem: (id: string) => {
