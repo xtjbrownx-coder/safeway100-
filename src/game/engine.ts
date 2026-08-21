@@ -720,12 +720,13 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   const fridgeGlass = new THREE.MeshPhysicalMaterial({
     color: "#dff0f7",
-    transmission: 0.86,
-    roughness: 0.04,
-    thickness: 0.12,
+    transmission: 0.96,
+    roughness: 0.015,
+    thickness: 0.04,
+    ior: 1.45,
     metalness: 0,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.22,
     envMapIntensity: 2.4,
     clearcoat: 1,
   });
@@ -736,7 +737,12 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     envMapIntensity: 2.2,
     clearcoat: 0.6,
   });
-  const fridgeInner = new THREE.MeshStandardMaterial({ color: "#c9d6dd", roughness: 0.35, metalness: 0.4 });
+  const fridgeInner = new THREE.MeshStandardMaterial({
+    color: "#dfe9ef",
+    roughness: 0.42,
+    metalness: 0.25,
+    side: THREE.BackSide,
+  });
   const chromeBar = new THREE.MeshPhysicalMaterial({
     color: "#e6ebee",
     roughness: 0.09,
@@ -781,9 +787,22 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const cz = z0 + u * UW;
 
       // interior alcove + stock on 3 racks
-      const alcove = new THREE.Mesh(new THREE.BoxGeometry(depth - 0.3, height - 0.5, UW - 0.14), fridgeInner);
-      alcove.position.set(x - facing * 0.12, height / 2 - 0.05, cz);
+      const alcove = new THREE.Mesh(new THREE.BoxGeometry(depth - 0.18, height - 0.4, UW - 0.1), fridgeInner);
+      alcove.position.set(x - facing * 0.1, height / 2 - 0.05, cz);
       scene.add(alcove);
+
+      // interior lighting so the stock reads clearly through the glass
+      const strip = new THREE.Mesh(
+        new THREE.PlaneGeometry(UW - 0.2, 0.05),
+        new THREE.MeshBasicMaterial({ color: "#eaf7ff" }),
+      );
+      strip.position.set(x + facing * (depth / 2 - 0.14), height - 0.32, cz);
+      strip.rotation.x = Math.PI / 2;
+      strip.rotation.z = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
+      scene.add(strip);
+      const inner = new THREE.PointLight("#e8f4ff", 2.2, 2.6, 2);
+      inner.position.set(x + facing * 0.18, height - 0.45, cz);
+      scene.add(inner);
 
       const stock: THREE.Mesh[] = [];
       if (items.length) {
@@ -794,7 +813,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
           for (let k = 0; k < 4; k++) {
             const p = items[(u * 3 + level * 2 + k) % items.length]!;
             const m = meshFor(p);
-            m.position.set(x + facing * (depth / 2 - 0.45), sy + 0.17, cz - UW / 2 + 0.28 + k * 0.3);
+            m.position.set(x + facing * (depth / 2 - 0.3), sy + 0.17, cz - UW / 2 + 0.28 + k * 0.3);
             m.rotation.y = facing > 0 ? Math.PI / 2 : -Math.PI / 2;
             m.userData['productId'] = p.id;
             m.updateMatrix();
@@ -869,7 +888,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
         }
         d.angle = wanted;
         d.vel = 0;
-        d.pivot.rotation.y = -d.angle * 1.9;
+        d.pivot.rotation.y = d.angle * 1.9;
         continue;
       }
 
@@ -879,7 +898,7 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       const c = d.open ? 8.4 : 10.5;
       d.vel += ((wanted - d.angle) * k * gate - d.vel * c) * dt;
       d.angle = Math.max(0, Math.min(1.06, d.angle + d.vel * dt));
-      d.pivot.rotation.y = -d.angle * 1.9;
+      d.pivot.rotation.y = d.angle * 1.9;
     }
   }
 
