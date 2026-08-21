@@ -271,16 +271,16 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
 
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
+  renderer.toneMappingExposure = 1.06;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#c8d2dc");
-  scene.fog = new THREE.Fog("#cfd8e0", 40, 120);
+  scene.fog = new THREE.Fog("#d3dbe3", 55, 150);
 
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.02).texture;
-  scene.environmentIntensity = 1.05;
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.015).texture;
+  scene.environmentIntensity = 1.18;
 
 
   const camera = new THREE.PerspectiveCamera(74, 1, 0.05, 220);
