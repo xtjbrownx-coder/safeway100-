@@ -1150,24 +1150,53 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
 
   function buildAvatar(shirt: string, skin: string, withCart: boolean) {
     const g = new THREE.Group();
-    const shirtMat = new THREE.MeshStandardMaterial({ color: shirt, roughness: 0.82 });
-    const pantsMat = new THREE.MeshStandardMaterial({ color: "#2b3038", roughness: 0.92 });
-    const skinMat = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.62 });
-    const shoeMat = new THREE.MeshStandardMaterial({ color: "#16181d", roughness: 0.75 });
-    const hairMat = new THREE.MeshStandardMaterial({ color: "#2a1e18", roughness: 0.95 });
+    const shirtMat = new THREE.MeshPhysicalMaterial({
+      color: shirt,
+      roughness: 0.78,
+      sheen: 0.6,
+      sheenRoughness: 0.8,
+      sheenColor: new THREE.Color(shirt),
+      envMapIntensity: 0.7,
+    });
+    const pantsMat = new THREE.MeshPhysicalMaterial({
+      color: "#39414d",
+      roughness: 0.9,
+      sheen: 0.35,
+      sheenRoughness: 0.9,
+      envMapIntensity: 0.5,
+    });
+    const skinMat = new THREE.MeshPhysicalMaterial({
+      color: skin,
+      roughness: 0.52,
+      clearcoat: 0.28,
+      clearcoatRoughness: 0.6,
+      sheen: 0.25,
+      envMapIntensity: 0.55,
+    });
+    const shoeMat = new THREE.MeshPhysicalMaterial({ color: "#191c22", roughness: 0.5, clearcoat: 0.5, envMapIntensity: 0.8 });
+    const hairMat = new THREE.MeshPhysicalMaterial({
+      color: "#241a15",
+      roughness: 0.62,
+      sheen: 0.8,
+      sheenColor: new THREE.Color("#6b5140"),
+      clearcoat: 0.3,
+      envMapIntensity: 0.6,
+    });
 
     // legs (pivot at hip so they can swing)
     const makeLeg = (sx: number) => {
       const pivot = new THREE.Group();
       pivot.position.set(sx * 0.11, 0.86, 0);
-      const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.093, 0.34, 3, 8), pantsMat);
+      const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.098, 0.34, 6, 16), pantsMat);
       thigh.position.y = -0.22;
       thigh.castShadow = true;
       pivot.add(thigh);
-      const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.077, 0.32, 3, 8), pantsMat);
+      const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.32, 6, 16), pantsMat);
       shin.position.y = -0.6;
       pivot.add(shin);
-      const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.08, 0.26), shoeMat);
+      const shoe = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.16, 4, 12), shoeMat);
+      shoe.rotation.x = Math.PI / 2;
+      shoe.scale.set(1.15, 1, 0.72);
       shoe.position.set(0, -0.82, 0.05);
       pivot.add(shoe);
       g.add(pivot);
@@ -1176,20 +1205,21 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     const legL = makeLeg(-1);
     const legR = makeLeg(1);
 
-    const hips = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.12, 3, 10), pantsMat);
+    const hips = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.12, 6, 18), pantsMat);
     hips.position.y = 0.92;
     hips.scale.z = 0.8;
     g.add(hips);
 
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.38, 4, 12), shirtMat);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.38, 8, 24), shirtMat);
     torso.position.y = 1.24;
     torso.scale.set(1.12, 1, 0.72);
     torso.castShadow = true;
     g.add(torso);
-    const shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.115, 0.34, 3, 10), shirtMat);
+    const shoulders = new THREE.Mesh(new THREE.CapsuleGeometry(0.115, 0.34, 6, 18), shirtMat);
     shoulders.rotation.z = Math.PI / 2;
     shoulders.position.y = 1.42;
     shoulders.scale.z = 0.78;
+    shoulders.castShadow = true;
     g.add(shoulders);
 
     // arms (pivot at shoulder, reaching slightly forward toward the cart handle)
@@ -1198,13 +1228,13 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
       pivot.position.set(sx * 0.245, 1.42, 0);
       pivot.rotation.x = withCart ? -0.75 : -0.15;
       pivot.rotation.z = sx * 0.06;
-      const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.062, 0.26, 3, 8), shirtMat);
+      const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.064, 0.26, 6, 14), shirtMat);
       upper.position.y = -0.17;
       pivot.add(upper);
-      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.054, 0.24, 3, 8), skinMat);
+      const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.052, 0.24, 6, 14), skinMat);
       fore.position.y = -0.44;
       pivot.add(fore);
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.062, 10, 8), skinMat);
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.062, 16, 12), skinMat);
       hand.position.y = -0.6;
       hand.scale.set(1, 1.1, 0.7);
       pivot.add(hand);
@@ -1218,34 +1248,47 @@ export function createGame(canvas: HTMLCanvasElement, cb: GameCallbacks) {
     neck.position.y = 1.5;
     g.add(neck);
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.125, 16, 14), skinMat);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.125, 32, 28), skinMat);
     head.position.y = 1.63;
     head.scale.set(0.92, 1.12, 1);
     head.castShadow = true;
     g.add(head);
-    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), skinMat);
+    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.1, 24, 18), skinMat);
     jaw.position.set(0, 1.58, 0.015);
     jaw.scale.set(0.88, 0.8, 1);
     g.add(jaw);
     for (const sx of [-1, 1]) {
-      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), skinMat);
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.03, 14, 10), skinMat);
       ear.position.set(sx * 0.115, 1.63, 0);
       ear.scale.set(0.5, 1, 0.8);
       g.add(ear);
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), new THREE.MeshStandardMaterial({ color: "#1a1d22", roughness: 0.3 }));
-      eye.position.set(sx * 0.045, 1.655, 0.105);
-      g.add(eye);
+      const sclera = new THREE.Mesh(
+        new THREE.SphereGeometry(0.019, 16, 12),
+        new THREE.MeshPhysicalMaterial({ color: "#f4f2ee", roughness: 0.12, clearcoat: 1 }),
+      );
+      sclera.position.set(sx * 0.045, 1.655, 0.102);
+      g.add(sclera);
+      const iris = new THREE.Mesh(
+        new THREE.SphereGeometry(0.009, 12, 10),
+        new THREE.MeshPhysicalMaterial({ color: "#3b2b1e", roughness: 0.1, clearcoat: 1 }),
+      );
+      iris.position.set(sx * 0.045, 1.655, 0.116);
+      g.add(iris);
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.008, 0.016), hairMat);
+      brow.position.set(sx * 0.046, 1.681, 0.105);
+      brow.rotation.z = sx * 0.12;
+      g.add(brow);
     }
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.05, 6), skinMat);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.021, 0.05, 12), skinMat);
     nose.rotation.x = Math.PI / 2;
     nose.position.set(0, 1.625, 0.12);
     g.add(nose);
 
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.132, 14, 12, 0, Math.PI * 2, 0, Math.PI / 2.1), hairMat);
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.132, 28, 22, 0, Math.PI * 2, 0, Math.PI / 2.1), hairMat);
     hair.position.y = 1.64;
     hair.scale.set(0.96, 1.2, 1.04);
     g.add(hair);
-    const back = new THREE.Mesh(new THREE.SphereGeometry(0.128, 12, 10, 0, Math.PI, 0, Math.PI / 1.5), hairMat);
+    const back = new THREE.Mesh(new THREE.SphereGeometry(0.128, 24, 18, 0, Math.PI, 0, Math.PI / 1.5), hairMat);
     back.position.set(0, 1.62, -0.01);
     back.rotation.y = -Math.PI / 2;
     g.add(back);
